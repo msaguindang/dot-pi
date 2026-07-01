@@ -7,7 +7,7 @@ systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
 tools: read, grep, find, ls, bash, edit, write
-extensions:
+extensions: ""
 defaultContext: fresh
 defaultReads: context.md, plan.md
 defaultProgress: true

@@ -3,7 +3,7 @@ name: planner
 description: Creates implementation plans from context and requirements
 model: anthropic/claude-sonnet-4-6
 tools: read, grep, find, ls, write
-extensions:
+extensions: ""
 thinking: high
 systemPromptMode: replace
 inheritProjectContext: true
