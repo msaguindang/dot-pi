@@ -67,7 +67,8 @@
     "agentOverrides": {
       "researcher": { "model": "google/gemini-3.1-pro-preview-customtools", "thinking": "medium" },
       "context-builder": { "model": "anthropic/claude-sonnet-4-6", "thinking": "medium" }
-    }
+    },
+    "companionSuggestions": false
   },
   "theme": "tokyonight",
   "quietStartup": true
