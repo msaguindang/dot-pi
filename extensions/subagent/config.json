@@ -1,0 +1,30 @@
+{
+	"companionSuggestions": {
+		"packages": {
+			"pi-intercom": {
+				"dismissed": {
+					"workspaces": [
+						"/home/codeweaver/.config",
+						"/data/dev/work/ntv/player-server",
+						"/data/dev/work/ntv",
+						"/data/dev/work/ntv/player-scripts/.worktrees/fix-prep-trixie-seamless",
+						"/home/codeweaver/.pi/agent",
+						"/data/dev/work/ntv/api-v1"
+					]
+				}
+			},
+			"pi-prompt-template-model": {
+				"dismissed": {
+					"workspaces": [
+						"/home/codeweaver/.config",
+						"/data/dev/work/ntv/player-server",
+						"/data/dev/work/ntv",
+						"/data/dev/work/ntv/player-scripts/.worktrees/fix-prep-trixie-seamless",
+						"/home/codeweaver/.pi/agent",
+						"/data/dev/work/ntv/api-v1"
+					]
+				}
+			}
+		}
+	}
+}
