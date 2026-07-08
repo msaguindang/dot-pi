@@ -15,7 +15,7 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 
 | Role | Model | Thinking | Rationale |
 |------|-------|----------|-----------|
-| orchestrator (`settings.json`) | `anthropic/claude-haiku-4-5` | `low` | cheap, cached, reliable dispatch |
+| orchestrator (`settings.json`) | `anthropic/claude-haiku-4-5` | `medium` | cheap, cached, reliable dispatch |
 | `worker` | `anthropic/claude-sonnet-4-6` | **`medium`** | executor — planner already reasoned; high over-anchors + burns 2–5x tokens |
 | `tui-worker` | `anthropic/claude-sonnet-4-6` | **`medium`** | executor (same as worker) |
 | `planner` | `anthropic/claude-sonnet-4-6` | `high` | reasoning role — thinking belongs here |
