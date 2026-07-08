@@ -77,6 +77,27 @@ else
     fail "INV-13 APPEND_SYSTEM.md missing claim-verification / post-deploy probe clauses"
 fi
 
+echo "== Extension hygiene =="
+# Every extensions entry in settings.json (enabled or disabled) must exist on disk.
+missing_ext=""
+while IFS= read -r entry; do
+    rel="${entry#[+-]}"
+    [[ -e "${script_dir}/${rel}" ]] || missing_ext+="${rel} "
+done < <(grep -oE '"[+-]extensions/[^"]+"' "$SETTINGS" | tr -d '"')
+if [[ -z "$missing_ext" ]]; then
+    pass "all settings.json extension entries exist on disk"
+else
+    fail "settings.json references missing extension(s): ${missing_ext}"
+fi
+
+# No unloaded bulk inside extensions/ (vendored repos, node_modules). Threshold 10M.
+big_dirs="$(find "${script_dir}/extensions" -mindepth 1 -maxdepth 1 -type d -exec du -sm {} \; 2>/dev/null | awk '$1 > 10 {print $2}')"
+if [[ -z "$big_dirs" ]]; then
+    pass "no dir >10M inside extensions/"
+else
+    fail "oversized dir(s) in extensions/ (vendored repo? node_modules?): ${big_dirs}"
+fi
+
 echo "== Cost observability =="
 # INV-8 footer aggregates via parentSessionId
 if grep -q "parentSessionId" "$COST_TRACKER" 2>/dev/null; then

@@ -6,9 +6,11 @@
  * surfaces ANY invariant failure LOUDLY in the first second, so config drift /
  * "committed-but-not-live" is caught before an expensive session, not after.
  *
- * Non-blocking by design: a failing audit screams via ctx.ui.notify("warning")
+ * Non-blocking by design: a failing audit screams via ctx.ui.notify("error")
  * and pins a persistent status badge, but NEVER prevents the session from
- * starting. Best-effort: a missing/erroring script logs one warning and
+ * starting. Note: the gate fires at session_start only — drift introduced
+ * mid-session (e.g. /model persisting to settings.json) surfaces on the NEXT
+ * session, not immediately. Best-effort: a missing/erroring script logs one warning and
  * continues — the audit must never crash the session.
  *
  * Only surfaces in the main (UI) process; subagents skip to avoid noise.
@@ -118,7 +120,7 @@ export default function (pi: ExtensionAPI): void {
 			ctx.ui.notify(
 				`HARNESS INVARIANT FAILURE — config drift / committed-but-not-live detected:\n${body}\n` +
 				`Run: bash ${scriptPath}`,
-				"warning",
+				"error",
 			);
 		} catch (err) {
 			// Best-effort — the audit gate must NEVER crash the session.
