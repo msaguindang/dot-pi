@@ -67,6 +67,16 @@ else
     pass "INV-5 no blocking supervisor-wait escalation"
 fi
 
+echo "== Process discipline =="
+# INV-13 orchestrator verifies subagent claims; device work gets post-deploy probe
+APPEND_SYSTEM="${script_dir}/APPEND_SYSTEM.md"
+if grep -q "Subagent claims are unverified until checked" "$APPEND_SYSTEM" 2>/dev/null \
+    && grep -q "Device work requires a post-deploy probe" "$APPEND_SYSTEM" 2>/dev/null; then
+    pass "INV-13 claim-verification + post-deploy probe clauses present in APPEND_SYSTEM.md"
+else
+    fail "INV-13 APPEND_SYSTEM.md missing claim-verification / post-deploy probe clauses"
+fi
+
 echo "== Cost observability =="
 # INV-8 footer aggregates via parentSessionId
 if grep -q "parentSessionId" "$COST_TRACKER" 2>/dev/null; then
