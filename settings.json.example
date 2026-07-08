@@ -40,8 +40,7 @@
     "+extensions/context-resolver.ts",
     "+extensions/tui-dryrun.ts",
     "+extensions/extension-watcher.ts",
-    "-extensions/prompt-classifier.ts",
-    "-extensions/prompt-router.ts"
+    "-extensions/atuin.ts"
   ],
   "themes": [
     "-themes/catppuccin-mocha.json",
@@ -60,7 +59,7 @@
     "showTerminalProgress": true
   },
   "images": {
-    "autoResize": false
+    "autoResize": true
   },
   "subagents": {
     "_comment": "agentOverrides is the canonical mechanism for model/thinking pins on builtin agents. The harness does NOT use it — local agents/*.md files are used instead because they support systemPromptMode: replace, defaultReads, output, and defaultProgress, which agentOverrides does not. Use agentOverrides only for lightweight model or thinking overrides that do not require a custom system prompt.",

@@ -177,8 +177,6 @@ Loaded automatically at startup via `settings.json` `extensions` array.
 | `tool-cache.ts` | Caches repeated tool results within a session |
 | `tui-dryrun.ts` | ANSI validation guard — blocks TUI edits without dry-run verification |
 | `atuin.ts` | *(disabled by default)* Tracks pi bash commands in [Atuin](https://github.com/atuinsh/atuin) history with author `pi`. Requires `atuin` installed and `atuin hook install pi` run. Enable by changing `-extensions/atuin.ts` to `+extensions/atuin.ts` in `settings.json`. |
-| `prompt-classifier.ts` | *(disabled)* No-op classifier stub |
-| `prompt-router.ts` | *(disabled)* Dead letter routing extension |
 
 To disable an extension, prefix its entry with `-` in `settings.json`:
 
