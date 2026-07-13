@@ -46,7 +46,7 @@ Required files — write these yourself:
 cp ~/.pi/agent/settings.json.example ~/.pi/agent/settings.json
 ```
 
-`settings.json` is gitignored — pi writes runtime state back to it on every session (last model used, changelog version, etc). The example file has the correct defaults (`anthropic/claude-haiku-4-5`, medium thinking, all extensions, Tokyo Night theme). Copy it once; pi owns it from there.
+`settings.json` is gitignored — pi writes runtime state back to it on every session (last model used, changelog version, etc). The example file has a working starting default (`anthropic/claude-sonnet-4-6`, medium thinking, all extensions, Tokyo Night theme) — the orchestrator model is NOT pinned/enforced by the harness (INV-1 retired 2026-07-13); pick whatever fits your context-window and cost tradeoff. Copy the example once; pi owns it from there.
 
 ### 4. Set up providers
 
@@ -56,7 +56,7 @@ pi auth login
 
 Log in to the providers you plan to use. At minimum:
 
-- **Anthropic** — orchestrator + workers (`anthropic/claude-haiku-4-5`, `anthropic/claude-sonnet-4-6`)
+- **Anthropic** — workers (`anthropic/claude-sonnet-4-6`); orchestrator model is your choice
 
 To verify available models after login:
 
@@ -151,23 +151,23 @@ Or set a persistent fallback in `settings.json`:
 
 ## Model Routing
 
-Orchestrator model is set in `settings.json`. Worker/subagent models are set per-agent in `agents/*.md` frontmatter.
+Orchestrator model is set in `settings.json` and is **not pinned by the harness** — switch freely (`/model` mid-session, or edit the file directly) based on your own context-window/cost/capability tradeoff. Worker/subagent models are set per-agent in `agents/*.md` frontmatter and ARE pinned (see `HARNESS_INVARIANTS.md`).
 
-| Config | Controls |
-|---|---|
-| `settings.json` → `defaultProvider` + `defaultModel` | Orchestrator (main session model) |
-| `agents/<name>.md` → `model:` frontmatter | Per-agent model override for subagents |
+| Config | Controls | Enforced? |
+|---|---|---|
+| `settings.json` → `defaultProvider` + `defaultModel` | Orchestrator (main session model) | No — user's choice |
+| `agents/<name>.md` → `model:` frontmatter | Per-agent model override for subagents | Yes — audited (INV-2/3/4) |
 
 Subagent dispatch is handled via `APPEND_SYSTEM.md` routing rules. The orchestrator decides when to delegate based on prompt context — no automatic prompt classification is applied.
 
 ### Changing the model stack
 
-**Orchestrator** — edit `settings.json`:
+**Orchestrator** — edit `settings.json` (any provider/model you're logged into):
 
 ```json
 {
   "defaultProvider": "anthropic",
-  "defaultModel": "claude-haiku-4-5"
+  "defaultModel": "claude-sonnet-4-6"
 }
 ```
 

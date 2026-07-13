@@ -32,14 +32,7 @@ assert_field() {
 }
 
 echo "== Model routing =="
-# INV-1 orchestrator defaults
-if grep -q '"defaultModel": *"claude-haiku-4-5"' "$SETTINGS" 2>/dev/null \
-    && grep -q '"defaultThinkingLevel": *"medium"' "$SETTINGS" 2>/dev/null \
-    && grep -q '"defaultProvider": *"anthropic"' "$SETTINGS" 2>/dev/null; then
-    pass "INV-1 orchestrator = anthropic/claude-haiku-4-5 thinking medium"
-else
-    fail "INV-1 orchestrator defaults (settings.json) not as expected"
-fi
+# INV-1 retired 2026-07-13 — orchestrator model is user's free choice, no longer pinned/audited.
 
 # INV-2/3/4 per-agent pins
 assert_field "worker.md"          "model"    "anthropic/claude-sonnet-4-6"

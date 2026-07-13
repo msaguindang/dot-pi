@@ -14,7 +14,7 @@ First: read `~/.pi/agent/HARNESS_INVARIANTS.md` to load the current invariant se
 ### Checklist
 
 **Model pins**
-- INV-1: `settings.json.example` — `defaultProvider` is `anthropic`, `defaultModel` is `claude-haiku-4-5`, `defaultThinkingLevel` is `medium`
+- INV-1 retired 2026-07-13 — orchestrator model is user's free choice, not audited. Do not flag `settings.json.example` `defaultProvider`/`defaultModel` as a finding regardless of value.
 - INV-2: `agents/worker.md` and `agents/tui-worker.md` frontmatter — `thinking: medium`
 - INV-3: `agents/planner.md` frontmatter (if file exists) — `thinking: high`
 - INV-4: every `agents/*.md` `model:` field matches the model table in HARNESS_INVARIANTS.md — no unlisted providers, no dropped/renamed model IDs
@@ -57,7 +57,6 @@ Date: <ISO date>
 
 | Check | Invariant | Status | Evidence | Proposed Fix |
 |---|---|---|---|---|
-| Model pins — orchestrator | INV-1 | PASS/FAIL | "<quoted>" | — or fix description |
 | Model pins — worker thinking | INV-2 | PASS/FAIL | "<quoted>" | — or fix description |
 | Model pins — planner thinking | INV-3 | PASS/FAIL | "<quoted>" | — or fix description |
 | Model pins — agent table | INV-4 | PASS/FAIL | "<quoted>" | — or fix description |
@@ -71,9 +70,9 @@ Date: <ISO date>
 | Dead config | dead-config | PASS/FAIL | "<quoted>" | — or fix description |
 | README accuracy | readme | PASS/FAIL | "<quoted>" | — or fix description |
 
-**Summary**: X/13 passed. Y failed: [list failed check names].
+**Summary**: X/12 passed. Y failed: [list failed check names].
 
-**To apply fixes**: reply "apply all" or name specific checks (e.g., "apply naming, INV-1").
+**To apply fixes**: reply "apply all" or name specific checks (e.g., "apply naming, INV-2").
 To skip: reply "skip" or address findings manually.
 ```
 

@@ -15,7 +15,7 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 
 | Role | Model | Thinking | Rationale |
 |------|-------|----------|-----------|
-| orchestrator (`settings.json`) | `anthropic/claude-haiku-4-5` | `medium` | cheap, cached, reliable dispatch |
+| orchestrator (`settings.json`) | **user's choice — not pinned** | user's choice | see INV-1 retirement note below |
 | `worker` | `anthropic/claude-sonnet-4-6` | **`medium`** | executor — planner already reasoned; high over-anchors + burns 2–5x tokens |
 | `tui-worker` | `anthropic/claude-sonnet-4-6` | **`medium`** | executor (same as worker) |
 | `planner` | `anthropic/claude-sonnet-4-6` | `high` | reasoning role — thinking belongs here |
@@ -27,7 +27,14 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 | `delegate` | inherit (orchestrator default) | inherit (`medium`) | lightweight dispatch, inherits parent |
 | `reviewer` | `anthropic/claude-haiku-4-5` | `medium` | read-only gate — Haiku sufficient for verification |
 
-- **INV-1** orchestrator pinned `defaultProvider=anthropic`, `defaultModel=claude-haiku-4-5`, `defaultThinkingLevel=medium`. Check: `grep settings.json`.
+- **INV-1 (retired 2026-07-13):** previously pinned the orchestrator to `anthropic/claude-haiku-4-5`
+  at `defaultThinkingLevel=medium`. Retired by user decision: Haiku's context window is a poor fit
+  for the orchestrator role, which accumulates the full session transcript across every delegated
+  turn. The harness now deliberately supports free orchestrator model switching — no pin, no audit
+  check, no gate. `settings.json` `defaultProvider`/`defaultModel` is entirely the user's call;
+  change it via `/model` or by editing the file directly. This retirement also removes the model
+  routing table's former justification for keeping the orchestrator on the cheap tier — that
+  tradeoff is no longer enforced by the harness.
 - **INV-2** `worker` + `tui-worker` are `thinking: medium` (NOT high). Check: frontmatter grep.
 - **INV-3** `planner` is `thinking: high`. Check: frontmatter grep.
 - **INV-4** every agent's `model:` matches the table (oracle, worker, tui-worker, planner, session-auditor, linux-doctor have explicit pins). Check: frontmatter grep.

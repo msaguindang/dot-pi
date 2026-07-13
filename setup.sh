@@ -233,7 +233,7 @@ print_auth_instructions() {
     echo ""
     echo "    REQUIRED:"
     echo "      Anthropic API key  →  https://console.anthropic.com/"
-    echo "      Powers: orchestrator (claude-haiku-4-5) + all workers (claude-sonnet-4-6)"
+    echo "      Powers: all workers (claude-sonnet-4-6) + orchestrator (your choice of model)"
     echo ""
     echo "    OPTIONAL:"
     echo "      Google OAuth  →  researcher agent (gemini-3.1-pro) + gmail extension"

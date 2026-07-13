@@ -1,6 +1,7 @@
 {
+  "_defaultModel_comment": "Orchestrator model — NOT enforced by the harness (INV-1 retired 2026-07-13: Haiku's context window is a poor fit for a role that accumulates the full session transcript). Suggested starting point only; switch freely via /model or by editing this value.",
   "defaultProvider": "anthropic",
-  "defaultModel": "claude-haiku-4-5",
+  "defaultModel": "claude-sonnet-4-6",
   "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "packages": [
