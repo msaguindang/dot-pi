@@ -111,14 +111,41 @@ pi "hello"
 `AGENTS.md` at startup loads (in order):
 
 ```
-@~/.agents/context/identity.md
-@~/.agents/context/environment.md
-@~/.agents/context/long-term.md
-@~/.agents/standards/code-style.md
-@~/.agents/standards/tool-policy.md
+@~/.agents/standards/tool-policy.md          # immutable core — every profile
+@~/.pi/agent/profiles/<active-profile>.md    # profile-gated domain context
 ```
 
+`context-resolver.ts` expands `@`-includes recursively (profile files themselves contain `@` lines) and substitutes the active profile into the sentinel line before expansion.
+
 `APPEND_SYSTEM.md` appends harness-specific rules after the above (routing policy, TUI rendering overrides, agent notes, pre-fix diagnostic gate).
+
+### Context Profiles
+
+Domain context (identity, environment, NTV knowledge, Hyprland notes, etc.) is profile-gated so unrelated sessions (e.g. editing this harness, or brainstorming) don't carry NTV work context they don't need. Safety/tool-policy rules load in every profile regardless.
+
+| Profile | Loads |
+|---|---|
+| `default` | identity, environment, generic long-term redirect, code-style |
+| `ntv` | identity, environment, NTV v1 + v2 domain knowledge, code-style |
+| `pi-harness` | identity, environment, pi extension patterns, code-style |
+| `desktop` | identity, environment, Hyprland notes, code-style |
+| `brainstorm` | identity only — minimal, for consultation/ideation sessions |
+
+Select a profile before starting a session (profile selection is startup-time only — the system prompt is fixed once a session starts, so changing it mid-session has no effect):
+
+```bash
+PI_PROFILE=ntv pi
+```
+
+Or set a persistent fallback in `settings.json`:
+
+```json
+"contextProfile": "ntv"
+```
+
+`PI_PROFILE` always wins over `contextProfile`. Neither set → `default`.
+
+**Caveat:** pi core injects ancestor-directory `AGENTS.md` files (`/AGENTS.md`, `~/AGENTS.md`) as plain text before `context-resolver.ts` runs. Profile selection controls only this harness's `AGENTS.md` layer — it cannot suppress ancestor project files, so `brainstorm`/`desktop` won't be fully context-free if an ancestor `AGENTS.md` exists.
 
 ---
 

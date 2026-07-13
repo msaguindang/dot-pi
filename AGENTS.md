@@ -1,6 +1,6 @@
-@~/.agents/context/identity.md
-@~/.agents/context/environment.md
-@~/.agents/context/long-term.md
-@~/.agents/standards/code-style.md
-
+# Immutable core — loaded in every profile:
 @~/.agents/standards/tool-policy.md
+
+# Profile-gated domain context — swapped by context-resolver.ts based on PI_PROFILE:
+# (see ~/.pi/agent/profiles/ for available profiles)
+@~/.pi/agent/profiles/default.md

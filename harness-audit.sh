@@ -98,6 +98,55 @@ else
     fail "oversized dir(s) in extensions/ (vendored repo? node_modules?): ${big_dirs}"
 fi
 
+echo "== Context profile =="
+PROFILES_DIR="${script_dir}/profiles"
+
+# INV-15 all five profile files exist; INV-15b every @ include inside them resolves on disk.
+_required_profiles=("default.md" "ntv.md" "pi-harness.md" "desktop.md" "brainstorm.md")
+for _p in "${_required_profiles[@]}"; do
+    if [[ -f "${PROFILES_DIR}/${_p}" ]]; then
+        pass "INV-15 profiles/${_p} exists"
+    else
+        fail "INV-15 profiles/${_p} MISSING"
+    fi
+done
+
+while IFS= read -r _pfile; do
+    while IFS= read -r _inc_line; do
+        _inc_path="${_inc_line:1}"
+        _inc_abs="${_inc_path/#\~/$HOME}"
+        if [[ -e "$_inc_abs" ]]; then
+            pass "INV-15b ${_pfile##*/}: ${_inc_path} resolves"
+        else
+            fail "INV-15b ${_pfile##*/}: ${_inc_path} MISSING on disk"
+        fi
+    done < <(grep -E '^@' "$_pfile" 2>/dev/null || true)
+done < <(find "$PROFILES_DIR" -name "*.md" -type f 2>/dev/null | sort)
+
+# INV-16 tool-policy.md stays in AGENTS.md's immutable core, not delegated to a profile.
+if grep -qE '^@.*tool-policy\.md' "${script_dir}/AGENTS.md" 2>/dev/null; then
+    pass "INV-16 tool-policy.md present in AGENTS.md immutable @include"
+else
+    fail "INV-16 AGENTS.md missing @~/.agents/standards/tool-policy.md — must be in immutable core"
+fi
+
+# INV-17 if contextProfile is set in settings.json, it must be a recognized profile name.
+_ctx_profile="$(grep -oE '"contextProfile" *: *"[^"]*"' "$SETTINGS" 2>/dev/null | sed -E 's/.*: *"([^"]*)"/\1/' || true)"
+_valid_profiles=("default" "ntv" "pi-harness" "desktop" "brainstorm")
+if [[ -z "$_ctx_profile" ]]; then
+    pass "INV-17 contextProfile not set in settings.json (PI_PROFILE env is primary)"
+else
+    _found=false
+    for _vp in "${_valid_profiles[@]}"; do
+        [[ "$_ctx_profile" == "$_vp" ]] && _found=true && break
+    done
+    if $_found; then
+        pass "INV-17 contextProfile='${_ctx_profile}' is a valid profile name"
+    else
+        fail "INV-17 contextProfile='${_ctx_profile}' is not a recognized profile (${_valid_profiles[*]})"
+    fi
+fi
+
 echo "== Cost observability =="
 # INV-8 footer aggregates via parentSessionId
 if grep -q "parentSessionId" "$COST_TRACKER" 2>/dev/null; then

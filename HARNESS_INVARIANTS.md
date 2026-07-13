@@ -53,3 +53,31 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 
 - **INV-12** `adjutant-editor.ts` must load before `adjutant-greeting.ts`. Greeting reads editor state established by the editor extension; if editor loads after, the greeting renders against an uninitialized context. Check: `adjutant-editor` appears before `adjutant-greeting` in the `extensions` array in `settings.json`.
 - **INV-14** `harness-audit-gate.ts` must load after `guardrails.ts`. The audit gate reads state that guardrails sets; loading before guardrails causes the gate to evaluate against uninitialized state and may pass checks that should block. Check: `harness-audit-gate` appears after `guardrails` in the `extensions` array in `settings.json`.
+
+## Context profile
+
+- **INV-15** `profiles/` directory exists with all five profile files: `default.md`, `ntv.md`,
+  `pi-harness.md`, `desktop.md`, `brainstorm.md`. Every `@` include inside each profile must
+  resolve to an existing file on disk. Check: `harness-audit.sh` INV-15/15b.
+- **INV-16** `~/.agents/standards/tool-policy.md` must remain as a direct `@include` in
+  `AGENTS.md` (not delegated to a profile file). It is the immutable safety core and must load
+  in every profile. Check: grep AGENTS.md for `@.*tool-policy.md`.
+- **INV-17** If `contextProfile` is set in `settings.json`, its value must be one of the five
+  known profile names. The `PI_PROFILE` env var takes priority over this key at runtime.
+  Check: `harness-audit.sh` INV-17. Note: changing either key mid-session has no effect; the
+  system prompt is fixed once a session starts. A session restart is required for any profile
+  change to take effect.
+
+**Ancestor injection caveat (documented limitation):** Pi core injects AGENTS.md files from
+ancestor directories (`/AGENTS.md`, `/home/codeweaver/AGENTS.md`) as plain text before
+`context-resolver.ts` runs. These files contain NTV project overview, skills list, and tool
+safety pointers that `context-resolver.ts` cannot suppress. Profile selection controls only
+the `~/.pi/agent/AGENTS.md` layer. For a truly minimal brainstorm context, the NTV skills
+list and project overview from `/AGENTS.md` will still be present. This is a pi-core
+limitation, not addressable at the extension layer.
+
+**Origin:** this mechanism was first attempted 2026-07-10 — a worker claimed all 9 plan tasks
+complete and a reviewer passed it, but only the `profiles/` content files (task 1) had actually
+landed; AGENTS.md, context-resolver.ts, settings.json.example, and harness-audit.sh were
+untouched. Caught during a later unrelated session when the user asked how to select a profile.
+This is the canonical example motivating INV-13 — verify subagent claims, don't trust them.

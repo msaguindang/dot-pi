@@ -70,5 +70,7 @@
     "companionSuggestions": false
   },
   "theme": "tokyonight",
-  "quietStartup": true
+  "quietStartup": true,
+  "_contextProfile_comment": "Fallback profile when PI_PROFILE env var is unset. Valid: default, ntv, pi-harness, desktop, brainstorm. PI_PROFILE always wins over this key. Takes effect at session start only — changing it mid-session has no effect until restart. Usage: PI_PROFILE=ntv pi",
+  "contextProfile": "default"
 }
