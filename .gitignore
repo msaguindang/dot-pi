@@ -20,8 +20,9 @@ cost-sync-status.json
 logs/
 usage-data/
 
-# Standalone utility scripts (not part of any extension)
-scripts/
+# Standalone utility scripts (root-level scratch dir only — NOT skill-bundled
+# scripts/ subdirs, which are tracked source, same as extensions/*.ts)
+/scripts/
 
 # Claude Code local permission overrides (machine-specific)
 .claude/settings.local.json

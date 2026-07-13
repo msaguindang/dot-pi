@@ -1,16 +1,16 @@
 {
   "devices": [
     {
-      "name": "test-pi",
-      "host": "192.168.0.213",
-      "user": "piweaver",
-      "auth": "key"
+      "name": "test-pi-151",
+      "host": "192.168.1.151",
+      "user": "pi",
+      "auth": "password"
     },
     {
-      "name": "rpi-171",
-      "host": "192.168.1.171",
+      "name": "test-pi-142",
+      "host": "192.168.1.142",
       "user": "pi",
-      "auth": "key"
+      "auth": "password"
     }
   ]
 }
