@@ -48,6 +48,20 @@ SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 err()  { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "[ntv-release] $*"; }
 
+validate_release_artifacts() { # <server-zip> <ui-zip> <ui-version>
+    local server_zip="$1" ui_zip="$2" ui_version="$3"
+    local expected_ui_index="player-ui-${ui_version}/index.html"
+
+    [[ -f "$server_zip" ]] || err "expected build artifact missing: $server_zip"
+    [[ -f "$ui_zip" ]] || err "expected build artifact missing: $ui_zip"
+    [[ "$(stat -c%s "$server_zip")" -gt 1048576 ]] \
+        || err "server artifact suspiciously small (<1MB): $server_zip"
+    unzip -tqq "$ui_zip" >/dev/null 2>&1 \
+        || err "UI artifact is not a valid zip: $ui_zip"
+    unzip -Z1 "$ui_zip" | grep -Fx "$expected_ui_index" >/dev/null \
+        || err "UI artifact missing expected member $expected_ui_index: $ui_zip"
+}
+
 # --- template rendering: replace {{KEY}} tokens via env pairs ---------------
 render() { # render <template> <out> KEY=VALUE...
     local tpl="$1" out="$2"; shift 2
@@ -178,12 +192,8 @@ cmd_init() {
         info "Skipping UI build — coupling rule: reusing existing zip $UI_ZIP"
     fi
 
-    # zip sanity: exists and > 1 MB
-    local z
-    for z in "$SERVER_ZIP" "$UI_ZIP"; do
-        [[ -f "$z" ]] || err "expected build artifact missing: $z"
-        [[ "$(stat -c%s "$z")" -gt 1048576 ]] || err "artifact suspiciously small (<1MB): $z"
-    done
+    # Component-specific artifact sanity checks.
+    validate_release_artifacts "$SERVER_ZIP" "$UI_ZIP" "$UI_VERSION"
 
     # --- prior-stable detection ------------------------------------------------
     local ps_ref ps_ver ps_commit pu_ref pu_ver pu_commit
@@ -366,8 +376,10 @@ EOF
 }
 
 # =============================================================================
-case "${1:-}" in
-    init)    shift; cmd_init "$@" ;;
-    publish) shift; cmd_publish "$@" ;;
-    *) grep '^#' "$0" | sed 's/^# \{0,1\}//' | sed -n '2,40p'; exit 1 ;;
-esac
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    case "${1:-}" in
+        init)    shift; cmd_init "$@" ;;
+        publish) shift; cmd_publish "$@" ;;
+        *) grep '^#' "$0" | sed 's/^# \{0,1\}//' | sed -n '2,40p'; exit 1 ;;
+    esac
+fi

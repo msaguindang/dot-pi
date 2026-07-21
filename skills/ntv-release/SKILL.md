@@ -117,8 +117,9 @@ been merged into `next`. The target package version must be committed on the fix
 13. **Verify target version** — Confirm `package.json` version matches the already-tested
     target version from QA. No new version bump after QA — the canonical artifact must
     match the tested candidate. The script verifies clean tree and package.json version.
-14. **Prod build** — `NODE_ENV=prod npm run build:prod` → `builds/player-<repo>-X.Y.Z.zip`
-    (must exist, > 1 MB). *(automated by `release.sh init`)*
+14. **Prod build** — `NODE_ENV=prod npm run build:prod` → `builds/player-<repo>-X.Y.Z.zip`.
+    Both artifacts must exist; the server ZIP must exceed 1 MiB, and the UI ZIP must be
+    readable and contain `player-ui-<version>/index.html`. *(automated by `release.sh init`)*
 15. **Fresh BUILD_ID** — new UUID, collision-checked against all prior release records.
     *(automated by `release.sh init`)*
 16. **S3 upload** — `checksums.sha256` over every zip + script, upload all to
