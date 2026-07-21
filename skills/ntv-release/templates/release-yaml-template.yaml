@@ -1,0 +1,58 @@
+# release.yaml — {{RELEASE_ID}}
+release_id: {{RELEASE_ID}}
+date: "{{DATE}}"
+created_at: "{{CREATED_AT}}"
+created_by: "{{CREATED_BY}}"
+status: staged
+# Lifecycle: staged → tested → under_observation → deployed | rolled-back | superseded
+
+lifecycle:
+  test_retest:
+    result: pending
+    date: null
+    device: null
+    evidence_source: null
+  qa:
+    result: pending
+    date: null
+  production:
+    result: not_deployed
+    date: null
+
+provenance:
+  player-server:
+    version: "{{SERVER_VERSION}}"
+    branch: {{SERVER_BRANCH}}
+    commit: {{SERVER_COMMIT}}
+    artifact: player-server-{{SERVER_VERSION}}.zip
+  player-ui:
+    version: "{{UI_VERSION}}"
+    branch: {{UI_BRANCH}}
+    commit: {{UI_COMMIT}}
+    artifact: player-ui-{{UI_VERSION}}.zip
+
+s3:
+  bucket: ncompasstv-prod-player-apps
+  prefix: secure-rc/{{BUILD_ID}}
+  build_id: {{BUILD_ID}}
+  entrypoint: https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/deploy-ntv-bundle.sh
+  artifacts:
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/deploy-ntv-bundle.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/rollback-bundle.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/update-{{SERVER_VERSION}}-server.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/update-{{UI_VERSION}}-ui.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/player-server-{{SERVER_VERSION}}.zip
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/player-ui-{{UI_VERSION}}.zip
+
+policy:
+  no_npm_install: true
+  no_os_package_changes: true
+  test_device_first: true
+  s3_round_trip_required: true
+
+integrity:
+  checksums: checksums.sha256
+  verification: verification.md
+
+rollback:
+  instructions: rollback.md

@@ -1,0 +1,104 @@
+#!/usr/bin/env bash
+# validate-release.sh — 4-stage release validation + S3 presence check.
+#
+# Stages 1–4 (files present, sha256sum --check, YAML parse, bash -n) are
+# delegated to fleet-gitops' own validator — the source of truth:
+#   <gitops>/player-apps/tools/validate-release.sh
+# Stage 5 (this script) verifies every checksummed file is present in
+# s3://ncompasstv-prod-player-apps/secure-rc/<BUILD_ID>/ via `aws s3 ls`.
+#
+# Usage:
+#   validate-release.sh <release-dir | BUILD_ID> [--local-only] [--gitops <path>]
+#
+# --local-only  skip the S3 stage (use before upload).
+#
+# Exit 0 on PASS, non-zero on FAIL.
+# Evidence log: /tmp/validate-<BUILD_ID>.log
+set -euo pipefail
+
+GITOPS="${NTV_GITOPS:-/data/dev/work/ntv/fleet-gitops}"
+LOCAL_ONLY=false
+TARGET=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --local-only) LOCAL_ONLY=true; shift ;;
+        --gitops) GITOPS="${2:?--gitops needs a path}"; shift 2 ;;
+        -h|--help)
+            grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -16; exit 0 ;;
+        *) TARGET="$1"; shift ;;
+    esac
+done
+
+[[ -n "$TARGET" ]] || { echo "ERROR: release-dir or BUILD_ID required." >&2; exit 1; }
+
+RELEASES_DIR="$GITOPS/player-apps/releases"
+UPSTREAM_VALIDATOR="$GITOPS/player-apps/tools/validate-release.sh"
+[[ -f "$UPSTREAM_VALIDATOR" ]] || { echo "ERROR: fleet-gitops validator not found: $UPSTREAM_VALIDATOR" >&2; exit 1; }
+
+# --- Resolve target: directory path, or BUILD_ID looked up in releases/ ---
+if [[ -d "$TARGET" ]]; then
+    RELEASE_DIR="$(cd "$TARGET" && pwd)"
+else
+    match="$(grep -rl "build_id: $TARGET" "$RELEASES_DIR"/*/release.yaml 2>/dev/null | head -1 || true)"
+    [[ -n "$match" ]] || { echo "ERROR: no release dir found for BUILD_ID '$TARGET' under $RELEASES_DIR" >&2; exit 1; }
+    RELEASE_DIR="$(dirname "$match")"
+fi
+
+BUILD_ID="$(grep 'build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}')"
+[[ -n "$BUILD_ID" ]] || { echo "ERROR: no build_id in $RELEASE_DIR/release.yaml" >&2; exit 1; }
+
+LOG="/tmp/validate-${BUILD_ID}.log"
+: > "$LOG"
+exec > >(tee -a "$LOG") 2>&1
+
+echo "=== ntv-release validation ==="
+echo "Release dir: $RELEASE_DIR"
+echo "BUILD_ID:    $BUILD_ID"
+echo "Log:         $LOG"
+echo ""
+
+FAIL=0
+
+# --- Stages 1–4: fleet-gitops validator (files, checksums, yaml, bash -n) ---
+echo "--- Stages 1-4: fleet-gitops validate-release.sh ---"
+if bash "$UPSTREAM_VALIDATOR" "$RELEASE_DIR"; then
+    echo "[PASS] local validation (files/checksums/yaml/bash -n)"
+else
+    echo "[FAIL] local validation"
+    FAIL=1
+fi
+echo ""
+
+# --- Stage 5: S3 presence ---
+if [[ "$LOCAL_ONLY" == "true" ]]; then
+    echo "--- Stage 5: S3 presence — SKIPPED (--local-only) ---"
+else
+    echo "--- Stage 5: S3 presence (aws s3 ls) ---"
+    if ! command -v aws >/dev/null 2>&1; then
+        echo "[FAIL] aws CLI not found — cannot verify S3."
+        FAIL=1
+    else
+        S3_PREFIX="s3://ncompasstv-prod-player-apps/secure-rc/${BUILD_ID}/"
+        listing="$(aws s3 ls "$S3_PREFIX" 2>&1 || true)"
+        echo "$listing"
+        # Every checksummed file + checksums.sha256 must be present in S3.
+        while IFS= read -r fname; do
+            if grep -q " ${fname}\$" <<< "$listing"; then
+                echo "[OK]   in S3: $fname"
+            else
+                echo "[FAIL] MISSING in S3: $fname"
+                FAIL=1
+            fi
+        done < <(awk '{print $2}' "$RELEASE_DIR/checksums.sha256"; echo "checksums.sha256")
+    fi
+fi
+echo ""
+
+if [[ "$FAIL" -eq 0 ]]; then
+    echo "RESULT: PASS — evidence in $LOG"
+    exit 0
+else
+    echo "RESULT: FAIL — evidence in $LOG"
+    exit 1
+fi
