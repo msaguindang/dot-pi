@@ -1,7 +1,7 @@
 ---
 name: oracle
 description: High-context decision-consistency oracle that protects inherited state and prevents drift
-model: anthropic/claude-sonnet-4-6
+model: anthropic/claude-sonnet-4-5
 thinking: high
 completionGuard: false
 tools: read, grep, find, ls, bash

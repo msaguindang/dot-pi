@@ -16,14 +16,14 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 | Role | Model | Thinking | Rationale |
 |------|-------|----------|-----------|
 | orchestrator (`settings.json`) | **user's choice — not pinned** | user's choice | see INV-1 retirement note below |
-| `worker` | `anthropic/claude-sonnet-4-6` | **`medium`** | executor — planner already reasoned; high over-anchors + burns 2–5x tokens |
-| `tui-worker` | `anthropic/claude-sonnet-4-6` | **`medium`** | executor (same as worker) |
-| `planner` | `anthropic/claude-sonnet-4-6` | `high` | reasoning role — thinking belongs here |
+| `worker` | `anthropic/claude-sonnet-4-5` | **`medium`** | executor — planner already reasoned; high over-anchors + burns 2–5x tokens |
+| `tui-worker` | `anthropic/claude-sonnet-4-5` | **`medium`** | executor (same as worker) |
+| `planner` | `anthropic/claude-sonnet-4-5` | `high` | reasoning role — thinking belongs here |
 | `session-auditor` | `minimax/MiniMax-M3` | `high` | cheap-tier bulk audit |
 | `linux-doctor` | `google/gemini-3.1-pro-preview-customtools` | inherit (`low`) | diagnostics |
-| `oracle` | `anthropic/claude-sonnet-4-6` | `high` | reasoning/review — fork context analysis |
+| `oracle` | `anthropic/claude-sonnet-4-5` | `high` | reasoning/review — fork context analysis |
 | `researcher` | `google/gemini-3.1-pro-preview-customtools` | `medium` | web research + synthesis — Gemini strong on search tasks |
-| `context-builder` | `anthropic/claude-sonnet-4-6` | `medium` | codebase analysis + handoff meta-prompt — code-heavy, Claude edge |
+| `context-builder` | `anthropic/claude-sonnet-4-5` | `medium` | codebase analysis + handoff meta-prompt — code-heavy, Claude edge |
 | `delegate` | inherit (orchestrator default) | inherit (`medium`) | lightweight dispatch, inherits parent |
 | `reviewer` | `anthropic/claude-haiku-4-5` | `medium` | read-only gate — Haiku sufficient for verification |
 

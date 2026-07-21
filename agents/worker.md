@@ -1,7 +1,7 @@
 ---
 name: worker
 description: Implementation agent for normal tasks and approved oracle handoffs
-model: anthropic/claude-sonnet-4-6
+model: anthropic/claude-sonnet-4-5
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true
