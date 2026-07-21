@@ -1,6 +1,6 @@
 ---
 name: rpi-doctor
-description: An intelligent, context-aware diagnostic tool for Raspberry Pi and local network devices. Automatically translates vague symptoms ("laggy", "player-server broken") into targeted SSH commands (pm2 status, top, etc.). Resolves device aliases to IPs using the local inventory.
+description: An intelligent, context-aware diagnostic tool for Raspberry Pi and local network devices. Automatically translates vague symptoms ("laggy", "player-server broken") into targeted SSH commands (pm2 status, top, etc.). Resolves device aliases to IPs using the local inventory. Also runs a read-only composite probe bundle — use when the user says "rpi-probe <ip>", "probe the device", "probe <device>", "check device state", "verify the deployment", or asks for a post-update health check.
 ---
 
 # RPI Doctor
@@ -18,6 +18,7 @@ An interactive, context-aware skill for managing, diagnosing, and resolving issu
 - When the user asks to "check the remote device" or "check [device-name]".
 - When the user reports a symptom on a local device (e.g., "test-pi is laggy", "player-server is throwing errors on <device-ip>").
 - When the user wants to list, add, or remove devices from their known inventory.
+- When the user says "rpi-probe <ip/device>", "probe the device", "check device state", or wants deployment verification / a post-update health check (use the `probe` category).
 
 ---
 
@@ -37,7 +38,13 @@ When the user asks you to check a device, analyze their input to determine the *
     *   *Trigger:* User just says "check test-pi".
     *   *Execution:* A lightweight combination of uptime and top-level PM2 status.
     *   *Agent Action:* Run `scripts/diagnose.sh <device> general`
-4.  **Category: `custom` (Explicit Commands)**
+4.  **Category: `probe` (Composite Read-Only Probe)**
+    *   *Trigger:* User says "rpi-probe 192.168.1.89", "probe the device", "check device state", "verify the deployment", or wants a post-update health check / stuck-device diagnostic.
+    *   *Execution:* Runs the full read-only bundle in one SSH session: pm2 list, deploy log listing + newest tail, deployment manifest, installed server/UI versions, pm2 logs (last 30, no stream), crontab, system time/NTP. Zero mutations on the device; safe to repeat.
+    *   *Agent Action:* Run `scripts/probe.sh <device> [--format json|text|csv]` (or equivalently `scripts/diagnose.sh <device> probe [format]`)
+    *   *Output:* Report written to `/tmp/probe-<host>-<timestamp>.txt` (or `.json`/`.csv`), with a Summary section: health GOOD/WARNING/CRITICAL, error counts, and a recommendation. A 4-line summary is printed to stdout. Exit 1 only on SSH connection failure.
+    *   *Note:* Device paths default to `/tmp/ntv-deploy-logs`, `/home/pi/deployment-manifest.json`, `/home/pi/player-server/package.json`, `/var/www/html/ui/package.json` — override with `RPI_DEPLOY_LOG_DIR`, `RPI_MANIFEST`, `RPI_SERVER_PKG`, `RPI_UI_PKG` env vars if a device differs.
+5.  **Category: `custom` (Explicit Commands)**
     *   *Trigger:* User explicitly says "run `ls -la` on test-pi".
     *   *Agent Action:* Run `scripts/diagnose.sh <device> custom "ls -la"`
 
@@ -60,3 +67,4 @@ If the user asks to "list devices", read the skill's bundled `skills/rpi-doctor/
 
 ## Bundled Resources
 - `scripts/diagnose.sh` (The secure SSH executor with timeouts and context-aware command selection)
+- `scripts/probe.sh` (Read-only composite probe bundle — deployment verification and device health snapshot)

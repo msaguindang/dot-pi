@@ -5,7 +5,7 @@ set -euo pipefail
 # RPI Doctor: Context-Aware SSH Diagnostics
 # ============================================================
 # Usage: ./diagnose.sh <device_or_ip> <category> [app_name_or_command]
-# Categories: health | app | general | custom
+# Categories: health | app | general | probe | custom
 # Example: ./diagnose.sh test-pi app player-server
 # Example: ./diagnose.sh 192.168.0.50 health
 # ============================================================
@@ -65,6 +65,11 @@ case "$CATEGORY" in
         CMD="echo '--- UPTIME ---' && uptime && \
              echo -e '\n--- PM2 OVERVIEW ---' && pm2 status"
         ;;
+    probe)
+        # Read-only composite diagnostic bundle — delegates to probe.sh.
+        # Optional third arg is the output format (text|json|csv).
+        exec "$script_dir/probe.sh" "$TARGET" ${ARG:+--format "$ARG"}
+        ;;
     custom)
         if [[ -z "$ARG" ]]; then
             log_error "You must provide a command when using the 'custom' category."
@@ -73,7 +78,7 @@ case "$CATEGORY" in
         CMD="$ARG"
         ;;
     *)
-        log_error "Unknown category: $CATEGORY. Use 'health', 'app', 'general', or 'custom'."
+        log_error "Unknown category: $CATEGORY. Use 'health', 'app', 'general', 'probe', or 'custom'."
         ;;
 esac
 
