@@ -18,13 +18,82 @@ const COST_HISTORY = join(homedir(), ".pi", "agent", "cost-history.jsonl");
 
 // Fallback pricing table (per-token) — used only when harness cost is zero.
 // Keys match model id substrings (case-insensitive).
+// NOTE: every agent model pin in this harness was renamed sonnet-4-6 -> sonnet-4-5
+// yesterday (display/pin rename, not a real model swap — pricing assumed unchanged).
+// The key here was missed, so sonnet-4-5 usage silently fell back to $0 whenever
+// harness-reported cost was zero. Renamed to match.
 const FALLBACK_RATES: Record<string, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
-	"claude-sonnet-4-6":      { input: 3e-6,    output: 15e-6,  cacheRead: 3e-7,   cacheWrite: 3.75e-6 },
+	"claude-sonnet-4-5":      { input: 3e-6,    output: 15e-6,  cacheRead: 3e-7,   cacheWrite: 3.75e-6 },
 	"claude-haiku-4-5":       { input: 1e-6,    output: 5e-6,   cacheRead: 1e-7,   cacheWrite: 1.25e-6 },
 	"gemini-3.1-pro-preview": { input: 2e-6,    output: 12e-6,  cacheRead: 2e-7,   cacheWrite: 0       },
 	"minimax-m2":             { input: 3e-7,    output: 1.2e-6, cacheRead: 3e-8,   cacheWrite: 0       },
 	"minimax-m3":             { input: 6e-7,    output: 2.4e-6, cacheRead: 1.2e-7, cacheWrite: 0       },
 };
+
+// ── Session cost ceiling ────────────────────────────────────────────────
+// Read once at process start (this covers the lifetime of one pi session —
+// orchestrator or subagent — same scope as `acc` below). Not hot-reloaded
+// mid-session; that's fine, these are monitoring thresholds, not billing.
+interface CostCeilingConfig {
+	warnThresholdUsd: number;
+	hardCeilingUsd: number;
+	hardCeilingRepeatUsd: number;
+}
+
+function readCostCeilingConfig(): CostCeilingConfig {
+	const defaults: CostCeilingConfig = { warnThresholdUsd: 5, hardCeilingUsd: 25, hardCeilingRepeatUsd: 5 };
+	try {
+		const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
+		if (!existsSync(settingsPath)) return defaults;
+		const settings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		return {
+			warnThresholdUsd: typeof settings.warnThresholdUsd === "number" ? settings.warnThresholdUsd : defaults.warnThresholdUsd,
+			hardCeilingUsd: typeof settings.hardCeilingUsd === "number" ? settings.hardCeilingUsd : defaults.hardCeilingUsd,
+			hardCeilingRepeatUsd: typeof settings.hardCeilingRepeatUsd === "number" ? settings.hardCeilingRepeatUsd : defaults.hardCeilingRepeatUsd,
+		};
+	} catch {
+		return defaults;
+	}
+}
+
+const costCeilingConfig = readCostCeilingConfig();
+
+// Running total for THIS process's session (module-scope, persists for the
+// life of the process — same lifetime `acc` would span across many
+// agent_start/agent_end cycles). Deliberately does NOT merge in subagent
+// costs from cost-history.jsonl (unlike the footer's sessionCost) — the
+// incident this guards against was the orchestrator's OWN turn cost
+// ballooning from context growth, not subagent spend. Add a jsonl merge
+// here if the ceiling needs to reflect whole-tree spend instead.
+let sessionCumulativeCost = 0;
+let warnedSoftCeiling = false;
+let hardCeilingWarnCount = 0; // how many repeat-warnings already fired past hardCeilingUsd
+
+// Intentionally a WARNING, not a kill-switch: this harness has no documented
+// "pause and ask the user" extension primitive, so the safest thing an
+// extension can do on overrun is make it impossible to miss, not silently
+// abort (or worse, half-abort) a running agent process.
+function checkCostCeilings(ctx: ExtensionContext, totalCost: number): void {
+	if (!warnedSoftCeiling && totalCost >= costCeilingConfig.warnThresholdUsd) {
+		warnedSoftCeiling = true;
+		ctx.ui.notify(
+			`[cost-tracker] Session cost has crossed $${costCeilingConfig.warnThresholdUsd.toFixed(2)} (currently $${totalCost.toFixed(2)}).`,
+			"warning",
+		);
+	}
+	if (totalCost >= costCeilingConfig.hardCeilingUsd) {
+		const overBy = totalCost - costCeilingConfig.hardCeilingUsd;
+		const dueWarnCount = Math.floor(overBy / costCeilingConfig.hardCeilingRepeatUsd) + 1;
+		if (dueWarnCount > hardCeilingWarnCount) {
+			hardCeilingWarnCount = dueWarnCount;
+			ctx.ui.notify(
+				`[cost-tracker] COST CEILING EXCEEDED: session has spent $${totalCost.toFixed(2)}, over the $${costCeilingConfig.hardCeilingUsd.toFixed(2)} hard ceiling. ` +
+					`This is a warning only — nothing is stopping the session automatically.`,
+				"error",
+			);
+		}
+	}
+}
 
 // Derive the parent (root) session id from a subagent's session file path.
 // Subagent session files live under a directory segment of the form
@@ -69,10 +138,38 @@ const isSubagent = process.env.PI_SUBAGENT_CHILD       === "1";
 export default function (pi: ExtensionAPI): void {
 	let acc: Acc | null = null;
 
-	pi.on("session_start", (_event, ctx) => {
+	pi.on("session_start", (event, ctx) => {
+		// Reset the cost-ceiling counters on every session_start EXCEPT "reload".
+		// sessionCumulativeCost is module-scope and otherwise survives for the
+		// life of the OS process — /new, /resume, and /fork rebind extensions
+		// onto the SAME running process rather than restarting it (per
+		// docs/extensions.md), so without this reset a fresh session inherits
+		// the prior session's accumulated cost and can report the ceiling as
+		// already exceeded before it has spent anything itself.
+		//
+		// "reload" (ctx.reload() / /reload) is excluded: it re-binds extension
+		// code onto the SAME still-running session, it does not switch to a
+		// different session file. The session's real spend hasn't changed, so
+		// zeroing here would hide genuine ceiling-exceeded state right after a
+		// routine extension reload.
+		//
+		// "resume" IS reset to 0, same as "new"/"fork": this accumulator only
+		// ever sums usage observed in-process via message_end (see comment on
+		// its declaration below — it deliberately never merges in cost from
+		// session history or subagent logs, unlike the footer's sessionCost).
+		// So on resume it can never accurately reflect the resumed session's
+		// true historical spend either way; leaving it un-reset would just
+		// carry over a different, unrelated session's cost, which is more
+		// misleading than starting the count over at 0.
+		if (event.reason !== "reload") {
+			sessionCumulativeCost = 0;
+			warnedSoftCeiling = false;
+			hardCeilingWarnCount = 0;
+		}
+
 		// Only display footer in the main orchestrator, avoid flickering/overwriting in subagents
 		if (isSubagent) return;
-		
+
 		ctx.ui.setFooter((tui, theme, footerData) => {
 			const unsub = footerData.onBranchChange(() => tui.requestRender());
 
@@ -136,7 +233,7 @@ export default function (pi: ExtensionAPI): void {
 		acc = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0, startedAt: Date.now() };
 	});
 
-	pi.on("message_end", (event, _ctx) => {
+	pi.on("message_end", (event, ctx) => {
 		if (!acc) return;
 		// Cast to access usage safely across all message types.
 		const msg = event.message as Record<string, unknown>;
@@ -152,6 +249,20 @@ export default function (pi: ExtensionAPI): void {
 		acc.cacheWrite += u.cacheWrite ?? 0;
 		acc.cost       += u.cost?.total ?? 0;
 		acc.turns++;
+
+		// Same fallback-when-zero logic as flush() below, applied per-message so
+		// the ceiling check sees real cost even for providers that report $0.
+		const msgCost = u.cost?.total ?? 0;
+		const effectiveCost = msgCost > 0
+			? msgCost
+			: fallbackCost(ctx.model?.id ?? "", {
+				input: u.input ?? 0,
+				output: u.output ?? 0,
+				cacheRead: u.cacheRead ?? 0,
+				cacheWrite: u.cacheWrite ?? 0,
+			});
+		sessionCumulativeCost += effectiveCost;
+		checkCostCeilings(ctx, sessionCumulativeCost);
 	});
 
 	const flush = (ctx: ExtensionContext, incomplete = false): void => {
