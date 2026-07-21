@@ -1,0 +1,14 @@
+{
+  "_note": "discord_bot_token is injected via Infisical (localhost:8080) — do not add it here",
+  "channel_id": "YOUR_CHANNEL_ID_HERE",
+  "vault_path": "~/Dropbox/Obsidian",
+  "template_path": "z. System/Templates/Work Log.md",
+  "username_mapping": {
+    "subordinate_username_1": "Display Name 1",
+    "subordinate_username_2": "Display Name 2"
+  },
+  "output_folder": "2. Areas/01 Work/01 Operations/Work Logs",
+  "author_header_pattern": "### {author}",
+  "empty_placeholder_pattern": "-\\s*",
+  "empty_placeholder_text": "- "
+}
