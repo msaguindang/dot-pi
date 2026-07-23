@@ -11,11 +11,22 @@ Nothing is trusted on the worker's word alone.
 
 Pipeline: **task file → validate → dispatch worker → parent verify → dispatch reviewer → (recover if needed)**.
 
+MUST, no exception: for any task file targeting release/build/QA-candidate/
+deploy work — anything touching `ntv-release`, a QA-candidate directory, or
+a script governed by `deploy-script-standard.md` — the task file MUST be
+produced by `scripts/create-task.sh`. A hand-written task file for this
+category is a hard stop, not "acceptable if validated" by
+`delegation-validator` alone. Run `scripts/check-task-provenance.sh
+<task-file>` before dispatch; a missing or malformed `generated_by` /
+`generated_at` stamp means: stop, regenerate the file via `create-task.sh`,
+do not dispatch a worker against it.
+
 ## Scripts
 
 | Script | Purpose |
 |---|---|
 | `scripts/create-task.sh [slug] [title] [count] [fence]` | Generates `/tmp/<slug>-task.md` from template, auto-runs delegation-validator |
+| `scripts/check-task-provenance.sh <task-file>` | Confirms a task file carries the `generated_by`/`generated_at` stamp `create-task.sh` writes — catches hand-written task files before dispatch |
 | `scripts/create-review.sh [slug]` | Generates `/tmp/review-<slug>-task.md`, copies criteria verbatim from task file |
 | `scripts/verify.sh <slug> [--repo DIR] [--fence f1,f2] [--script PATH]... [--skip-push] [--allow-dirty]` | Parent verification; writes `/tmp/verify-<slug>-evidence.txt`; exits non-zero on any deviation |
 

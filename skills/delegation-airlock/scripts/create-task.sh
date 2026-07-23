@@ -25,6 +25,11 @@ if [ -e "$OUT" ]; then
     exit 1
 fi
 
+# Provenance stamp — checked by scripts/check-task-provenance.sh. This is
+# what distinguishes a task file that went through the airlock from one
+# hand-written straight to /tmp. Do not backfill this on hand-written files.
+GENERATED_AT="$(date -Is)"
+
 {
 cat <<EOF
 ---
@@ -32,6 +37,8 @@ slug: ${SLUG}
 title: ${TITLE}
 acceptance_count: ${COUNT}
 scope_fence: ${FENCE}
+generated_by: delegation-airlock/create-task.sh
+generated_at: ${GENERATED_AT}
 ---
 
 ## Context Files (Read FIRST — absolute paths)

@@ -3,6 +3,8 @@ slug: <task-slug>
 title: <brief title>
 acceptance_count: <N>  # 6-17 typical
 scope_fence: <riskiest-mutation>
+generated_by: delegation-airlock/create-task.sh
+generated_at: <ISO8601 timestamp, e.g. 2026-07-22T14:03:21+08:00>
 ---
 
 ## Context Files (Read FIRST — absolute paths)
