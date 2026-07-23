@@ -26,5 +26,9 @@
 				}
 			}
 		}
+	},
+	"turnBudget": {
+		"maxTurns": 45,
+		"graceTurns": 8
 	}
 }
