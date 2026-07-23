@@ -111,7 +111,8 @@ fi
 if [ "$SKIP_PUSH" -eq 0 ]; then
     LOCAL_HEAD=$(git -C "$REPO" rev-parse HEAD)
     run "git ls-remote (confirm pushed)" git -C "$REPO" ls-remote origin
-    if ! git -C "$REPO" ls-remote origin 2>/dev/null | grep -q "$LOCAL_HEAD"; then
+    REMOTE_REFS=$(git -C "$REPO" ls-remote origin 2>/dev/null)
+    if ! grep -q "$LOCAL_HEAD" <<< "$REMOTE_REFS"; then
         log "DEVIATION: local HEAD $LOCAL_HEAD not found on remote 'origin' (not pushed?)"
         FAILURES=$((FAILURES + 1))
     fi
