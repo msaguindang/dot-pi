@@ -30,6 +30,9 @@
 #                              (server-only patch: UI zip from prior release)
 #   --prior-server REF         override prior-stable server tag/version
 #   --prior-ui REF             override prior-stable UI tag/version
+#   --from-release RELEASE_ID  override auto-detected prior release directory
+#                              (bypasses lifecycle-status auto-detection entirely;
+#                              RELEASE_ID is a dir name under player-apps/releases)
 #   --build-id UUID            REUSE an existing BUILD_ID. Only legal for the
 #                              staged-never-fetched overwrite exception; needs
 #                              --confirm-staged-overwrite AND an interactive
@@ -110,6 +113,68 @@ prior_stable() { # prior_stable <repo-path>  -> "ref version commit"
     echo "UNKNOWN UNKNOWN UNKNOWN"
 }
 
+# --- supersession-by-reference detection ------------------------------------
+# A release can be retired without its own status: field ever being flipped to
+# `superseded` (data-hygiene gap — the human forgot). The reliable record is
+# the REPLACING release's own `supersedes:` block:
+#   supersedes:
+#     release_id: <retired-id>
+#     build_id: <uuid>
+# Scan every release.yaml for such a block and print each referenced
+# release_id (one per line). Most releases have no supersedes: block at all
+# (that's normal, not an error) — under `set -euo pipefail` with pipefail on,
+# a no-match grep poisons the whole pipeline's exit status even when later
+# stages succeed, which would abort the entire script mid-loop. `|| true`
+# guards that, matching the existing optional-field style elsewhere in this
+# file (e.g. the chore(release) scan in prior_stable()).
+superseded_release_ids() { # superseded_release_ids <releases-dir>
+    local releases_dir="$1" yaml
+    for yaml in "$releases_dir"/*/release.yaml; do
+        [[ -f "$yaml" ]] || continue
+        grep -A1 '^supersedes:' "$yaml" 2>/dev/null | grep 'release_id:' | awk '{print $2}' || true
+    done
+}
+
+# --- prior-release directory selection --------------------------------------
+# Newest release whose status isn't a retired lifecycle state (rolled-back /
+# superseded — see the lifecycle comment in release.yaml) AND that isn't named
+# in any sibling's `supersedes:` block (catches the case above where status:
+# was never flipped — that's the primary fix, additive to the status check,
+# since a rolled-back release with no recorded replacement has no supersedes:
+# block at all). Ranked by created_at (preferred) or date field, NOT by
+# directory/file path sort — path sort has no concept of release status and
+# can pick a retired release if its dir name happens to sort last. On a tie
+# (identical date/created_at string — day-granularity dates can collide
+# across same-day releases), the release.yaml with the LATER mtime wins, since
+# that reflects actual creation recency. Override with --from-release.
+latest_active_release_dir() { # latest_active_release_dir <releases-dir> -> dir path (empty if none)
+    local releases_dir="$1" yaml status ts this_id yaml_mtime
+    local best_ts="" best_dir="" best_mtime=0
+    local excluded; excluded="$(superseded_release_ids "$releases_dir")"
+    for yaml in "$releases_dir"/*/release.yaml; do
+        [[ -f "$yaml" ]] || continue
+        status="$(grep -E '^status:' "$yaml" | head -1 | awk '{print $2}')"
+        [[ "$status" == "rolled-back" || "$status" == "superseded" ]] && continue
+        this_id="$(basename "$(dirname "$yaml")")"
+        if grep -Fxq "$this_id" <<< "$excluded"; then
+            continue
+        fi
+        # created_at is optional (older releases predate it) — `|| true` keeps
+        # a no-match from poisoning the pipeline's exit status under pipefail
+        # and aborting the whole script mid-loop (same reasoning as above).
+        ts="$(grep -E '^created_at:' "$yaml" | head -1 | awk '{print $2}' | tr -d '"' || true)"
+        [[ -n "$ts" ]] || ts="$(grep -E '^date:' "$yaml" | head -1 | awk '{print $2}' | tr -d '"' || true)"
+        [[ -n "$ts" ]] || continue
+        yaml_mtime="$(stat -c %Y "$yaml")"
+        if [[ -z "$best_ts" || "$ts" > "$best_ts" ]]; then
+            best_ts="$ts"; best_mtime="$yaml_mtime"; best_dir="$(dirname "$yaml")"
+        elif [[ "$ts" == "$best_ts" && "$yaml_mtime" -gt "$best_mtime" ]]; then
+            best_mtime="$yaml_mtime"; best_dir="$(dirname "$yaml")"
+        fi
+    done
+    echo "$best_dir"
+}
+
 # =============================================================================
 # INIT
 # =============================================================================
@@ -117,6 +182,7 @@ cmd_init() {
     local SERVER_VERSION="" UI_VERSION="" FIX_BRANCH=""
     local SKIP_SERVER_BUILD=false SKIP_UI_BUILD=false
     local PRIOR_SERVER_OVERRIDE="" PRIOR_UI_OVERRIDE=""
+    local FROM_RELEASE=""
     local BUILD_ID="" CONFIRM_OVERWRITE=false
 
     while [[ $# -gt 0 ]]; do
@@ -131,6 +197,7 @@ cmd_init() {
             --skip-ui-build)  SKIP_UI_BUILD=true; shift ;;
             --prior-server)   PRIOR_SERVER_OVERRIDE="${2:?}"; shift 2 ;;
             --prior-ui)       PRIOR_UI_OVERRIDE="${2:?}"; shift 2 ;;
+            --from-release)   FROM_RELEASE="${2:?}"; shift 2 ;;
             --build-id)       BUILD_ID="${2:?}"; shift 2 ;;
             --confirm-staged-overwrite) CONFIRM_OVERWRITE=true; shift ;;
             *) err "init: unknown option $1" ;;
@@ -204,10 +271,19 @@ cmd_init() {
     info "Prior stable server: $ps_ver ($ps_ref @ ${ps_commit:-?})"
     info "Prior stable UI:     $pu_ver ($pu_ref @ ${pu_commit:-?})"
 
-    # prior bundle BUILD_ID: newest existing release dir's build_id
-    local prior_build_id="unknown" prior_yaml
-    prior_yaml="$(ls -d "$RELEASES_DIR"/*/release.yaml 2>/dev/null | sort | tail -1 || true)"
-    [[ -n "$prior_yaml" ]] && prior_build_id="$(grep 'build_id:' "$prior_yaml" | head -1 | awk '{print $2}')"
+    # prior release dir: --from-release override, else newest non-retired release
+    # (status not rolled-back/superseded), ranked by created_at/date — not path sort.
+    local prior_release_dir
+    if [[ -n "$FROM_RELEASE" ]]; then
+        prior_release_dir="$RELEASES_DIR/$FROM_RELEASE"
+        [[ -d "$prior_release_dir" ]] || err "--from-release: no such release dir: $prior_release_dir"
+    else
+        prior_release_dir="$(latest_active_release_dir "$RELEASES_DIR")"
+        [[ -n "$prior_release_dir" ]] || err "no valid prior release found (all releases are rolled-back/superseded, or none exist) — use --from-release to specify one explicitly"
+    fi
+
+    local prior_build_id="unknown" prior_yaml="$prior_release_dir/release.yaml"
+    [[ -f "$prior_yaml" ]] && prior_build_id="$(grep 'build_id:' "$prior_yaml" | head -1 | awk '{print $2}')"
 
     # --- create release directory ----------------------------------------------
     local DATE RELEASE_ID RELEASE_DIR
@@ -248,10 +324,10 @@ cmd_init() {
     [[ -f "$T/deploy-ntv-bundle.sh" ]] && cp "$T/deploy-ntv-bundle.sh" "$RELEASE_DIR/deploy-ntv-bundle.sh"
     [[ -f "$T/update-server.sh"     ]] && cp "$T/update-server.sh"     "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
     [[ -f "$T/update-ui.sh"         ]] && cp "$T/update-ui.sh"         "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
-    # rollback-bundle.sh has no template; copy from the newest prior release as a base.
-    local prior_rb
-    prior_rb="$(ls "$RELEASES_DIR"/*/rollback-bundle.sh 2>/dev/null | sort | tail -1 || true)"
-    [[ -n "$prior_rb" ]] && cp "$prior_rb" "$RELEASE_DIR/rollback-bundle.sh"
+    # rollback-bundle.sh has no template; copy from the prior release dir as a base
+    # (same prior_release_dir selected above — non-retired, newest by date).
+    local prior_rb="$prior_release_dir/rollback-bundle.sh"
+    [[ -f "$prior_rb" ]] && cp "$prior_rb" "$RELEASE_DIR/rollback-bundle.sh"
 
     cat <<EOF
 
