@@ -61,6 +61,30 @@ stable_repo="$TMP_DIR/valid-stable"
 create_repository "$stable_repo" '1.2.3'
 assert_pass 'valid stable metadata' "$VALIDATOR" "$stable_repo" '1.2.3'
 
+zero_repo="$TMP_DIR/valid-zero"
+create_repository "$zero_repo" '0.0.0'
+assert_pass 'valid zero-valued stable metadata' "$VALIDATOR" "$zero_repo" '0.0.0'
+
+rc_zero_repo="$TMP_DIR/valid-rc-zero"
+create_repository "$rc_zero_repo" '1.2.3-rc.0'
+assert_pass 'valid zero-valued RC identifier' "$VALIDATOR" "$rc_zero_repo" '1.2.3-rc.0'
+
+leading_zero_major_repo="$TMP_DIR/leading-zero-major"
+create_repository "$leading_zero_major_repo" '01.2.3'
+assert_fail 'leading-zero major version' "$VALIDATOR" "$leading_zero_major_repo" '01.2.3'
+
+leading_zero_minor_repo="$TMP_DIR/leading-zero-minor"
+create_repository "$leading_zero_minor_repo" '1.02.3'
+assert_fail 'leading-zero minor version' "$VALIDATOR" "$leading_zero_minor_repo" '1.02.3'
+
+leading_zero_patch_repo="$TMP_DIR/leading-zero-patch"
+create_repository "$leading_zero_patch_repo" '1.2.03'
+assert_fail 'leading-zero patch version' "$VALIDATOR" "$leading_zero_patch_repo" '1.2.03'
+
+leading_zero_rc_repo="$TMP_DIR/leading-zero-rc"
+create_repository "$leading_zero_rc_repo" '1.2.3-rc.01'
+assert_fail 'leading-zero RC identifier' "$VALIDATOR" "$leading_zero_rc_repo" '1.2.3-rc.01'
+
 rc_repo="$TMP_DIR/valid-rc"
 create_repository "$rc_repo" '1.2.3'
 rc_base="$(git -C "$rc_repo" rev-parse HEAD)"
@@ -72,7 +96,7 @@ assert_pass 'valid RC metadata with committed changelog change relative to base'
     "$VALIDATOR" "$rc_repo" '1.2.4-rc.1' "$rc_base"
 
 missing_heading_repo="$TMP_DIR/missing-heading"
-create_repository "$missing_heading_repo" '1.2.3' 
+create_repository "$missing_heading_repo" '1.2.3'
 printf '# Changelog\n\n## [1.2.30]\n' > "$missing_heading_repo/CHANGELOG.md"
 git -C "$missing_heading_repo" add CHANGELOG.md
 git -C "$missing_heading_repo" commit -q -m 'fixture: use substring-only heading'

@@ -12,7 +12,7 @@ REPOSITORY_PATH="$1"
 EXPECTED_VERSION="$2"
 BASE_REF="${3:-}"
 
-[[ "$EXPECTED_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]] \
+[[ "$EXPECTED_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-rc\.(0|[1-9][0-9]*))?$ ]] \
     || fail "expected version must be MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-rc.N: $EXPECTED_VERSION"
 [[ -d "$REPOSITORY_PATH" ]] || fail "repository path does not exist: $REPOSITORY_PATH"
 git -C "$REPOSITORY_PATH" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
