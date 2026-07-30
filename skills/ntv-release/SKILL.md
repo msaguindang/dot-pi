@@ -35,6 +35,8 @@ self-detach via re-download, SIGHUP trap, idempotency gate, crontab window,
 
 **Pre-merge QA MUST pass before merge into `next`. Merge before QA is prohibited.**
 
+**Canonical release-metadata rule:** Before pre-merge QA, every component whose version changes must have committed `package.json`, applicable lockfile version fields, and a matching `CHANGELOG.md` version section that describes only the candidate changes. Validate this committed metadata with `scripts/validate-release-metadata.sh`.
+
 Every fix/feature branch must complete local QA validation on a test device before
 merging. This gate prevents defects from entering the integration branch and ensures
 that only device-validated code reaches immutable S3 artifacts.
@@ -110,8 +112,8 @@ been merged into `next`. The target package version must be committed on the fix
 **before** pre-merge QA begins.
 
 11. **Fix branch work** — `fix/*` off `next` (matching branch names across repos for
-    cross-repo fixes). Typecheck, lint, Conventional Commits, **version bump committed**,
-    push to BOTH `origin` and `forgejo`. *(Completed before QA)*
+    cross-repo fixes). Typecheck, lint, Conventional Commits, satisfy the canonical
+    release-metadata rule above, and push to BOTH `origin` and `forgejo`. *(Completed before QA)*
 12. **Merge into next** — `git checkout next && git merge --no-ff fix/<name>`; verify a
     merge commit was created; push both remotes. *(Completed at QA step 9)*
 13. **Verify target version** — Confirm `package.json` version matches the already-tested

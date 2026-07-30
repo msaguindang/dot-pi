@@ -38,6 +38,10 @@ ACTUAL_HEAD=$(git rev-parse HEAD)
 
 # Verify clean worktree (no uncommitted changes)
 git status --porcelain | grep -q . && { echo "Dirty worktree"; exit 1; }
+
+# Verify committed package, lockfile, and changelog metadata against next
+~/.pi/agent/skills/ntv-release/scripts/validate-release-metadata.sh \
+    "$PWD" "2.10.5-rc.1" "origin/next"
 ```
 
 ### 2. Validate Branch ZIP
@@ -390,9 +394,10 @@ ls /tmp/ntv-qa-* # Should show no directories
 
 ### Version Bump Timing
 
-- Version bump must be committed on fix branch **before** QA
-- If package.json doesn't match requested version, preflight fails
-- Rationale: QA validates the exact state that will be merged
+Follow the canonical release-metadata rule in `../SKILL.md`, then run
+`../scripts/validate-release-metadata.sh` with the fix-branch repository, exact candidate
+version, and the appropriate `next` base ref before preparing QA artifacts. This ensures
+QA validates the exact committed metadata and candidate state that will be merged.
 
 ### Merge Timing
 

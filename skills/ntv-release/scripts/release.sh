@@ -234,14 +234,12 @@ cmd_init() {
         fi
     fi
 
-    # --- repo preflight: clean tree, version matches package.json ------------
+    # --- repo preflight: committed package, lockfile, and changelog metadata --
     local repo which ver
     for which in server ui; do
         if [[ "$which" == "server" ]]; then repo="$SERVER_REPO"; ver="$SERVER_VERSION"; else repo="$UI_REPO"; ver="$UI_VERSION"; fi
+        bash "$SKILL_DIR/scripts/validate-release-metadata.sh" "$repo" "$ver"
         [[ -z "$(git -C "$repo" status --porcelain)" ]] || err "$repo has uncommitted changes — commit or stash first."
-        local pkg_ver
-        pkg_ver="$(node -p "require('$repo/package.json').version")"
-        [[ "$pkg_ver" == "$ver" ]] || err "$repo package.json is $pkg_ver, expected $ver — do the version bump (ritual step 3) first."
     done
 
     # --- production builds ----------------------------------------------------
