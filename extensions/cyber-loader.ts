@@ -27,7 +27,8 @@ function generateMatrixFrames(count: number): string[] {
 }
 
 function generateGlitchFrames(count: number): string[] {
-	const colors = [rgb(0, 255, 200), rgb(255, 0, 100), rgb(100, 200, 255), rgb(255, 255, 0)];
+	// Muted Tokyo Night palette (Cyan, Purple, Blue, Yellow/Orange)
+	const colors = [rgb(125, 207, 200), rgb(187, 154, 247), rgb(122, 162, 247), rgb(224, 175, 104)];
 	const frames: string[] = [];
 	for (let f = 0; f < count; f++) {
 		let line = "";
