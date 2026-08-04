@@ -16,16 +16,16 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 | Role | Model | Thinking | Rationale |
 |------|-------|----------|-----------|
 | orchestrator (`settings.json`) | **user's choice — not pinned** | user's choice | see INV-1 retirement note below |
-| `worker` | `anthropic/claude-sonnet-4-5` | **`medium`** | executor — planner already reasoned; high over-anchors + burns 2–5x tokens |
-| `tui-worker` | `anthropic/claude-sonnet-4-5` | **`medium`** | executor (same as worker) |
-| `planner` | `anthropic/claude-sonnet-4-5` | `high` | reasoning role — thinking belongs here |
-| `session-auditor` | `minimax/MiniMax-M3` | `high` | cheap-tier bulk audit |
+| `worker` | `google/gemini-3.1-pro-preview-customtools` | **`medium`** | executor — planner already reasoned; high over-anchors + burns 2–5x tokens |
+| `tui-worker` | `google/gemini-3.1-pro-preview-customtools` | **`medium`** | executor (same as worker) |
+| `planner` | `google/gemini-3.1-pro-preview-customtools` | `high` | reasoning role — thinking belongs here |
+| `session-auditor` | `google/gemini-3.6-flash` | `high` | cheap-tier bulk audit |
 | `linux-doctor` | `google/gemini-3.1-pro-preview-customtools` | inherit (`low`) | diagnostics |
-| `oracle` | `anthropic/claude-sonnet-4-5` | `high` | reasoning/review — fork context analysis |
+| `oracle` | `google/gemini-3.1-pro-preview-customtools` | `high` | reasoning/review — fork context analysis |
 | `researcher` | `google/gemini-3.1-pro-preview-customtools` | `medium` | web research + synthesis — Gemini strong on search tasks |
-| `context-builder` | `anthropic/claude-sonnet-4-5` | `medium` | codebase analysis + handoff meta-prompt — code-heavy, Claude edge |
+| `context-builder` | `google/gemini-3.1-pro-preview-customtools` | `medium` | codebase analysis + handoff meta-prompt (settings.json override) |
 | `delegate` | inherit (orchestrator default) | inherit (`medium`) | lightweight dispatch, inherits parent |
-| `reviewer` | `anthropic/claude-haiku-4-5` | `medium` | read-only gate — Haiku sufficient for verification |
+| `reviewer` | `google/gemini-3.6-flash` | `medium` | read-only gate — Flash sufficient for verification |
 
 - **INV-1 (retired 2026-07-13):** previously pinned the orchestrator to `anthropic/claude-haiku-4-5`
   at `defaultThinkingLevel=medium`. Retired by user decision: Haiku's context window is a poor fit
@@ -37,7 +37,8 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
   tradeoff is no longer enforced by the harness.
 - **INV-2** `worker` + `tui-worker` are `thinking: medium` (NOT high). Check: frontmatter grep.
 - **INV-3** `planner` is `thinking: high`. Check: frontmatter grep.
-- **INV-4** every agent's `model:` matches the table (oracle, worker, tui-worker, planner, session-auditor, linux-doctor have explicit pins). Check: frontmatter grep.
+- **INV-4** every agent's `model:` matches the table (oracle, worker, tui-worker, planner, session-auditor, linux-doctor, reviewer have explicit pins). Check: frontmatter grep.
+  - *2026-08-04 revision:* fleet moved to Gemini per user decision — Pro (`gemini-3.1-pro-preview-customtools`) for writer/reasoning roles (worker, tui-worker, planner, oracle, context-builder), Flash (`gemini-3.6-flash`) for cheap gates (reviewer, session-auditor). Replaces the previous anthropic/minimax pins. Thinking levels unchanged.
 
 ## Delegation behavior
 

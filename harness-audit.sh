@@ -35,13 +35,13 @@ echo "== Model routing =="
 # INV-1 retired 2026-07-13 — orchestrator model is user's free choice, no longer pinned/audited.
 
 # INV-2/3/4 per-agent pins
-assert_field "worker.md"          "model"    "anthropic/claude-sonnet-4-5"
+assert_field "worker.md"          "model"    "google/gemini-3.1-pro-preview-customtools"
 assert_field "worker.md"          "thinking" "medium"               # INV-2
-assert_field "tui-worker.md"      "model"    "anthropic/claude-sonnet-4-5"
+assert_field "tui-worker.md"      "model"    "google/gemini-3.1-pro-preview-customtools"
 assert_field "tui-worker.md"      "thinking" "medium"               # INV-2
-assert_field "planner.md"         "model"    "anthropic/claude-sonnet-4-5"
+assert_field "planner.md"         "model"    "google/gemini-3.1-pro-preview-customtools"
 assert_field "planner.md"         "thinking" "high"                 # INV-3
-assert_field "session-auditor.md" "model"    "minimax/MiniMax-M3"
+assert_field "session-auditor.md" "model"    "google/gemini-3.6-flash"
 assert_field "linux-doctor.md"    "model"    "google/gemini-3.1-pro-preview-customtools"
 
 # INV-4 no dropped providers in MODEL PINS (prose mentions in notes are fine)
