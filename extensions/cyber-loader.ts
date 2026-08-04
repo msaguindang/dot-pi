@@ -4,6 +4,24 @@ const W = 18;
 const MATRIX_CHARS = "ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘ012789Z";
 const GLITCH_CHARS = "█▓▒░╳╱╲¥£€$#@!?&%~*";
 
+const ACTION_QUOTES = [
+	"Right away, sir.",
+	"Acknowledged.",
+	"I'm on it.",
+	"Orders received.",
+	"Initiating.",
+	"As you will.",
+	"Commencing.",
+	"Vector locked in.",
+	"Coordinates received.",
+	"Course set.",
+	"Engaging.",
+	"Heading set.",
+	"Telepresence secure.",
+	"It shall be done.",
+	"I read ya."
+];
+
 function rgb(r: number, g: number, b: number): string {
 	return `\x1b[38;2;${r};${g};${b}m`;
 }
@@ -74,6 +92,16 @@ export default function (pi: ExtensionAPI): void {
 	};
 
 	let activeTools = 0;
+	let messageInterval: ReturnType<typeof setInterval> | undefined;
+	let messageIndex = 0;
+
+	function cycleWorkingMessage(ctx: ExtensionContext): void {
+		if (activeTools > 0) {
+			const msg = ACTION_QUOTES[messageIndex % ACTION_QUOTES.length];
+			ctx.ui.setWorkingMessage(`Working: ${msg}`);
+			messageIndex++;
+		}
+	}
 
 	pi.registerCommand("cyber", {
 		description: "Test cyber-loader animations (matrix, glitch, typewriter, auto)",
@@ -101,11 +129,20 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", (_event: any, ctx: ExtensionContext): void => {
 		activeTools = 0;
 		ctx.ui.setWorkingIndicator(matrixIndicator);
+		ctx.ui.setWorkingMessage(); // reset to default
+		if (messageInterval) {
+			clearInterval(messageInterval);
+			messageInterval = undefined;
+		}
 	});
 
 	pi.on("tool_execution_start", (_event: any, ctx: ExtensionContext): void => {
 		activeTools++;
 		ctx.ui.setWorkingIndicator(glitchIndicator);
+		if (activeTools === 1) {
+			cycleWorkingMessage(ctx);
+			messageInterval = setInterval(() => cycleWorkingMessage(ctx), 2000);
+		}
 	});
 
 	pi.on("tool_execution_end", (_event: any, ctx: ExtensionContext): void => {
@@ -113,6 +150,18 @@ export default function (pi: ExtensionAPI): void {
 		if (activeTools <= 0) {
 			activeTools = 0;
 			ctx.ui.setWorkingIndicator(matrixIndicator);
+			if (messageInterval) {
+				clearInterval(messageInterval);
+				messageInterval = undefined;
+			}
+			ctx.ui.setWorkingMessage(); // reset back to default
+		}
+	});
+
+	pi.on("session_shutdown", (_event: any, _ctx: ExtensionContext): void => {
+		if (messageInterval) {
+			clearInterval(messageInterval);
+			messageInterval = undefined;
 		}
 	});
 }
