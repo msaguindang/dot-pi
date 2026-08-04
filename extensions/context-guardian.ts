@@ -324,6 +324,19 @@
  * confirm is exactly the one this fix addresses. Nothing about the guard
  * logic itself changed as a result of removing them (they were purely
  * additive, per their own original comments).
+ *
+ * 2026-08-04 addendum — redundant double-compaction when pi's own
+ * compaction lands first: compactionDue was only ever cleared in turn_end,
+ * right before calling triggerCompaction(). If the guardian was deferred
+ * (pending tool calls) while context kept climbing past the harness's own
+ * reactive threshold, pi's internal auto-compaction could fire and shrink
+ * context on its own — but compactionDue stayed true, so the next turn_end
+ * fired a second, unnecessary compaction on already-fresh context. Fixed by
+ * clearing compactionDue unconditionally at the top of session_compact,
+ * before the willRetry/runActive gates: any completed compaction, regardless
+ * of reason or who triggered it, satisfies the need the flag represents.
+ * Harness-internal compaction now also disarms the guardian's pending
+ * trigger, same as our own.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -549,6 +562,19 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_compact", (event, ctx) => {
+		// Disarm unconditionally, before any gate below: ANY compaction that
+		// actually lands — ours, the harness's own reactive/threshold or
+		// overflow compaction, manual /compact, another extension's — means
+		// context usage genuinely dropped, satisfying whatever need set
+		// compactionDue true. If we left it set here, a compaction we didn't
+		// initiate (e.g. pi's own threshold compaction firing while we were
+		// deferred behind pending tool calls) would still leave compactionDue
+		// true, and the very next turn_end would fire a second, redundant
+		// compaction on the freshly-compacted context — wasted tokens and a
+		// summary-of-a-summary. previousRatio doesn't need the same treatment:
+		// it self-corrects on its own from the next message_end's usage read.
+		compactionDue = false;
+
 		// See header comment for the full trace. willRetry: true means the
 		// harness's own overflow recovery already resumes the turn — acting here
 		// too would double-continue. Only act when it did NOT auto-retry.
