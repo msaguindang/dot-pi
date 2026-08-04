@@ -1,7 +1,7 @@
 ---
 name: tui-worker
 description: Specialized TUI extension worker for pi-harness. Owns adjutant-editor, adjutant-greeting, session-name-status, cost-tracker. Handles all ANSI/TUI changes with mandatory 4-layer validation loop.
-model: anthropic/claude-sonnet-4-5
+model: google/gemini-3.1-pro-preview-customtools
 thinking: medium
 ---
 

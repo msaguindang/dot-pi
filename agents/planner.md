@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Creates implementation plans from context and requirements
-model: anthropic/claude-sonnet-4-5
+model: google/gemini-3.1-pro-preview-customtools
 tools: read, grep, find, ls, write
 extensions: ""
 thinking: high

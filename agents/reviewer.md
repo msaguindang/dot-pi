@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Read-only verification gate. Checks a worker's artifact/diff against supplied acceptance criteria (a manifest path and/or an explicit list). Outputs PASS / BLOCKER / UNVERIFIED. Never edits or fixes.
-model: anthropic/claude-haiku-4-5
+model: google/gemini-3.6-flash
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true

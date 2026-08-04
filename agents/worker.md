@@ -1,14 +1,15 @@
 ---
 name: worker
 description: Implementation agent for normal tasks and approved oracle handoffs
-model: anthropic/claude-sonnet-4-5
+tools: read, grep, find, ls, bash, edit, write, safe_bash
+model: google/gemini-3.1-pro-preview-customtools
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true
 inheritSkills: false
-tools: read, grep, find, ls, bash, edit, write
-extensions: ""
 defaultContext: fresh
+extensions:
+subagentOnlyExtensions: /home/codeweaver/.pi/agent/extensions/safe-bash.ts, /home/codeweaver/.pi/agent/extensions/guardrails.ts
 defaultReads: context.md, plan.md
 defaultProgress: true
 ---
