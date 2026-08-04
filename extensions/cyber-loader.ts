@@ -22,6 +22,16 @@ const ACTION_QUOTES = [
 	"I read ya."
 ];
 
+const THINKING_QUOTES = [
+	"Thoughts in chaos.",
+	"State thy bidding.",
+	"Power overwhelming.",
+	"I stand ready.",
+	"Receiving.",
+	"Awaiting command.",
+	"Telepresence secure."
+];
+
 function rgb(r: number, g: number, b: number): string {
 	return `\x1b[38;2;${r};${g};${b}m`;
 }
@@ -92,14 +102,77 @@ export default function (pi: ExtensionAPI): void {
 	};
 
 	let activeTools = 0;
+	let isThinking = false;
 	let messageInterval: ReturnType<typeof setInterval> | undefined;
-	let messageIndex = 0;
+	let actionIndex = 0;
+	let thinkingIndex = 0;
 
-	function cycleWorkingMessage(ctx: ExtensionContext): void {
+	let charIndex = 0;
+	let currentFullMsg = "";
+	let pauseTicks = 0;
+	const PAUSE_DURATION_TICKS = 25; // 25 * 60ms = 1500ms
+
+	function tickMessage(ctx: ExtensionContext): void {
+		if (activeTools === 0 && !isThinking) {
+			if (messageInterval) {
+				clearInterval(messageInterval);
+				messageInterval = undefined;
+			}
+			ctx.ui.setWorkingMessage();
+			return;
+		}
+
+		let prefix = "";
+		let quote = "";
 		if (activeTools > 0) {
-			const msg = ACTION_QUOTES[messageIndex % ACTION_QUOTES.length];
-			ctx.ui.setWorkingMessage(`Working: ${msg}`);
-			messageIndex++;
+			prefix = "Working: ";
+			quote = ACTION_QUOTES[actionIndex % ACTION_QUOTES.length]!;
+		} else {
+			prefix = "Thinking: ";
+			quote = THINKING_QUOTES[thinkingIndex % THINKING_QUOTES.length]!;
+		}
+
+		const targetFullMsg = prefix + quote;
+		if (currentFullMsg !== targetFullMsg) {
+			currentFullMsg = targetFullMsg;
+			charIndex = prefix.length;
+			pauseTicks = 0;
+		}
+
+		if (charIndex < currentFullMsg.length) {
+			charIndex++;
+			const text = currentFullMsg.substring(0, charIndex);
+			const cursor = charIndex % 2 === 0 ? "█" : "░";
+			ctx.ui.setWorkingMessage(text + cursor);
+		} else {
+			if (pauseTicks === 0) {
+				ctx.ui.setWorkingMessage(currentFullMsg);
+			}
+			pauseTicks++;
+			if (pauseTicks >= PAUSE_DURATION_TICKS) {
+				if (activeTools > 0) actionIndex++;
+				else thinkingIndex++;
+			}
+		}
+	}
+
+	function startMessageCycle(ctx: ExtensionContext): void {
+		if (!messageInterval) {
+			currentFullMsg = "";
+			tickMessage(ctx);
+			messageInterval = setInterval(() => tickMessage(ctx), 60);
+		} else {
+			currentFullMsg = ""; // Reset to start typing immediately on state change
+		}
+	}
+
+	function stopMessageCycle(ctx: ExtensionContext): void {
+		if (activeTools === 0 && !isThinking) {
+			if (messageInterval) {
+				clearInterval(messageInterval);
+				messageInterval = undefined;
+			}
+			ctx.ui.setWorkingMessage();
 		}
 	}
 
@@ -128,21 +201,32 @@ export default function (pi: ExtensionAPI): void {
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext): void => {
 		activeTools = 0;
+		isThinking = false;
 		ctx.ui.setWorkingIndicator(matrixIndicator);
-		ctx.ui.setWorkingMessage(); // reset to default
 		if (messageInterval) {
 			clearInterval(messageInterval);
 			messageInterval = undefined;
 		}
+		ctx.ui.setWorkingMessage(); // reset to default
+	});
+
+	pi.on("agent_start", (_event: any, ctx: ExtensionContext): void => {
+		isThinking = true;
+		if (activeTools === 0) {
+			ctx.ui.setWorkingIndicator(matrixIndicator);
+		}
+		startMessageCycle(ctx);
+	});
+
+	pi.on("agent_end", (_event: any, ctx: ExtensionContext): void => {
+		isThinking = false;
+		stopMessageCycle(ctx);
 	});
 
 	pi.on("tool_execution_start", (_event: any, ctx: ExtensionContext): void => {
 		activeTools++;
 		ctx.ui.setWorkingIndicator(glitchIndicator);
-		if (activeTools === 1) {
-			cycleWorkingMessage(ctx);
-			messageInterval = setInterval(() => cycleWorkingMessage(ctx), 2000);
-		}
+		startMessageCycle(ctx);
 	});
 
 	pi.on("tool_execution_end", (_event: any, ctx: ExtensionContext): void => {
@@ -150,11 +234,8 @@ export default function (pi: ExtensionAPI): void {
 		if (activeTools <= 0) {
 			activeTools = 0;
 			ctx.ui.setWorkingIndicator(matrixIndicator);
-			if (messageInterval) {
-				clearInterval(messageInterval);
-				messageInterval = undefined;
-			}
-			ctx.ui.setWorkingMessage(); // reset back to default
+			startMessageCycle(ctx);
+			stopMessageCycle(ctx);
 		}
 	});
 
