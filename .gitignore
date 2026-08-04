@@ -32,3 +32,9 @@ settings.json
 
 # Subagent fallback output artifact (written when pi-intercom absent)
 context.md
+
+# Pi runtime artifacts
+.pi-subagents/
+models-store.json
+git/
+node_modules/

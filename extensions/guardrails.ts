@@ -76,7 +76,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (event.toolName !== "bash") return;
+    if (event.toolName !== "bash" && event.toolName !== "safe_bash") return;
     const cmd = event.input.command ?? "";
     let rmHandled = false;
 
