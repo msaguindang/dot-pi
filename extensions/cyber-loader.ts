@@ -4,7 +4,7 @@ const W = 18;
 const MATRIX_CHARS = "ﾊﾐﾋｰｳｼﾅﾓﾆｻﾜﾂｵﾘ012789Z";
 const GLITCH_CHARS = "█▓▒░╳╱╲¥£€$#@!?&%~*";
 
-function rgb(r: number, g: number, b: number) {
+function rgb(r: number, g: number, b: number): string {
 	return `\x1b[38;2;${r};${g};${b}m`;
 }
 const RESET = "\x1b[39m";
@@ -44,7 +44,7 @@ function generateGlitchFrames(count: number): string[] {
 const matrixFrames = generateMatrixFrames(30);
 const glitchFrames = generateGlitchFrames(30);
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
 	const matrixIndicator: WorkingIndicatorOptions = {
 		frames: matrixFrames,
 		intervalMs: 80,
@@ -57,17 +57,17 @@ export default function (pi: ExtensionAPI) {
 
 	let activeTools = 0;
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", (_event: any, ctx: ExtensionContext): void => {
 		activeTools = 0;
 		ctx.ui.setWorkingIndicator(matrixIndicator);
 	});
 
-	pi.on("tool_execution_start", async (_event, ctx) => {
+	pi.on("tool_execution_start", (_event: any, ctx: ExtensionContext): void => {
 		activeTools++;
 		ctx.ui.setWorkingIndicator(glitchIndicator);
 	});
 
-	pi.on("tool_execution_end", async (_event, ctx) => {
+	pi.on("tool_execution_end", (_event: any, ctx: ExtensionContext): void => {
 		activeTools--;
 		if (activeTools <= 0) {
 			activeTools = 0;
