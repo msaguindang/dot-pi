@@ -177,6 +177,153 @@
  * tool_execution_end forwarding the prior fix, above, had to account for);
  * the only thing that actually gates sendUserMessage's behavior is
  * isStreaming, traced above.
+ *
+ * Mid-turn abort race (2026-08-03 fix): the diagnostic logging added
+ * 2026-07-22 (context-guardian-diag entries, session player-gitops-4.1) did
+ * its job — one week of logs recorded 27 reason:"manual" compactions, every
+ * one of them our OWN triggerCompaction() firing from message_end while a
+ * turn was still in progress. Per the AgentSession.compact() trace above
+ * (~line 1373: _disconnectFromAgent() → await this.abort() → compact), every
+ * one of those 27 calls ran this.abort() against a live turn — killing
+ * whatever the in-flight turn was still doing, every time, then relying on
+ * the session_compact auto-continue below to paper over it by resuming from
+ * a (possibly stale) summary. Firing from message_end was the root cause:
+ * that event fires for every message inside a turn, not just at turn
+ * boundaries (see the in-flight tool call race comment above), so "context
+ * crossed the proactive ratio" could be, and repeatedly was, detected
+ * mid-turn.
+ *
+ * Confirmed upstream shipped and reverted this exact pattern. Installed
+ * CHANGELOG.md, line 4813, under `## [0.17.0] - 2025-12-09`: "Simplified
+ * compaction flow: Removed proactive compaction (aborting mid-turn when
+ * threshold approached). Compaction now triggers in two cases only: (1)
+ * overflow error from LLM, which compacts and auto-retries, or (2) threshold
+ * crossed after a successful turn, which compacts without retry." That's
+ * precisely the bug this extension reintroduced from the outside — via
+ * ctx.compact(), which upstream's own removal never touched (it only
+ * changed pi's own internal auto-compaction, not the extension API). No
+ * newer upstream release restores or replaces the pattern — 0.83.0 (the
+ * active installed copy, see the runtime check below) is current, so there
+ * is no upstream fix to adopt instead of fixing this file directly.
+ * Upstream's own bundled example, examples/extensions/trigger-compact.ts
+ * (same installed copy referenced throughout this file), fires its
+ * threshold check from turn_end, never message_end — matching the
+ * changelog's "after a successful turn" rule.
+ *
+ * Runtime checked: `node --version` on this machine resolves v24.18.0
+ * (`which node` → ~/.nvm/versions/node/v24.18.0/bin/node), whose installed
+ * @earendil-works/pi-coding-agent is 0.83.0 — the version every line number
+ * in this file is cited against (v24.14.0 carries 0.80.3, v22.21.1 carries
+ * 0.78.0 — neither is the active runtime, so neither was used for citations).
+ *
+ * Fix part 1 — fire at turn_end, not message_end: message_end's edge-detect
+ * is unchanged; crossing the threshold now only sets a closure flag,
+ * compactionDue = true, instead of calling triggerCompaction() directly. A
+ * new turn_end handler does the actual firing: `if (compactionDue &&
+ * pendingToolCallIds.size === 0) { compactionDue = false;
+ * triggerCompaction(ctx); }`. Verified turn_end's shape and timing before
+ * writing this: dist/core/extensions/types.d.ts line 555-560 —
+ * `TurnEndEvent { type: "turn_end"; turnIndex: number; message: AgentMessage;
+ * toolResults: ToolResultMessage[]; }`, doc comment "Fired at the end of
+ * each turn"; and docs/extensions.md line 574-576, "Fired for each turn (one
+ * LLM response + tool calls)." The docs/extensions.md event-order diagram
+ * (lines 294-311) places turn_end strictly inside the per-turn block,
+ * before agent_end/agent_settled — i.e. after that turn's tool_result/
+ * tool_execution_end have already fired (confirmed via
+ * AgentSession._emitExtensionEvent, dist/core/agent-session.js ~line
+ * 443-451: turn_end is forwarded carrying that turn's already-resolved
+ * toolResults). So the only thing ctx.compact()'s abort() can still cost,
+ * firing here, is the next turn's LLM call, which hadn't started yet —
+ * exactly the case the auto-continue below already exists to cover, and
+ * nothing this turn already did is at risk.
+ *
+ * The pendingToolCallIds guard stays inside triggerCompaction() too (belt-
+ * and-suspenders — same guard, same rationale as the original comment on
+ * it, unchanged). If it defers there, it re-sets compactionDue = true
+ * (turn_end already cleared it before calling in), so the very next
+ * turn_end retries. onError (including the "Compaction cancelled" veto
+ * case) re-arms compactionDue = true the same way, since that attempt
+ * didn't actually happen; onComplete leaves it false, since a real
+ * compaction did happen and previousRatio's own natural drop is what
+ * re-arms detection of the next real crossing. This retires the
+ * previousRatio = 0 trick that both triggerCompaction()'s old guard and the
+ * session_before_compact veto used to force a re-arm: that trick was a
+ * workaround for message_end being the only place that ever retried a
+ * deferred compaction. Now that compactionDue/turn_end own retrying,
+ * session_before_compact's veto (which exists for callers we don't
+ * control — manual /compact, any other extension's compact()) no longer
+ * needs to touch either variable — if it ever did veto one of OUR OWN
+ * attempts (the rare race the original comment already called out as
+ * unlikely, since we guard upstream of ctx.compact() first),
+ * triggerCompaction()'s own onError already re-arms compactionDue from that
+ * same "Compaction cancelled" error.
+ *
+ * Fix part 2 — gate the auto-continue on a run actually being active: firing
+ * at turn boundaries means a guardian-triggered compaction can now land on
+ * the LAST turn of an already-finished response (no more tool calls
+ * queued), where sendUserMessage's synthetic "continue" would prod a
+ * genuinely idle agent into re-doing or inventing work instead of resuming
+ * real progress. Needed a "was a run actually in progress" signal at
+ * session_compact time. Checked which lifecycle event means "won't run
+ * again on its own": dist/core/extensions/types.d.ts line 545-547,
+ * AgentSettledEvent, "Fired after an agent run has fully settled and no
+ * automatic retry, compaction, or queued continuation will run";
+ * docs/extensions.md line 560, "`agent_start` fires when a low-level agent
+ * run begins. `agent_end` fires when that run ends, but Pi may still
+ * auto-retry, auto-compact and retry, or continue with queued follow-up
+ * messages. Use `agent_settled` for status integrations that need to know
+ * Pi will not continue running automatically." So runActive is tracked
+ * agent_start → true, agent_settled → false — deliberately not agent_end.
+ *
+ * A live runActive read at session_compact time is NOT enough by itself,
+ * though — traced dist/core/agent-session.js for both reasons that can
+ * reach session_compact:
+ *   - reason: "threshold"/"overflow" (_runAutoCompaction, ~line 1591,
+ *     called from _checkCompaction from _handlePostAgentRun, ~line
+ *     758-782) runs inside _runAgentPrompt's try block (~line 744-756),
+ *     strictly BEFORE its finally calls _emitAgentSettled (~line 755).
+ *     runActive is still genuinely true here — a live read is correct and
+ *     sufficient.
+ *   - reason: "manual" (compact(), ~line 1367) calls `await this.abort()`
+ *     (~line 1369) before session_compact is ever emitted (~line 1441), and
+ *     abort() (~line 1165-1169) calls waitForIdle(), which blocks until
+ *     _emitAgentSettled has already flipped runActive false (~line
+ *     305-323). So for THIS reason, by the time session_compact fires,
+ *     runActive reads false unconditionally — regardless of whether a turn
+ *     was genuinely active a moment earlier. That's true whether the
+ *     manual compaction was our own (now fired from turn_end, always
+ *     mid-run at the moment we call it) or a real user /compact (which, if
+ *     issued while genuinely idle, had runActive already false before
+ *     abort() ran anyway — abort()-on-an-idle-session is a no-op per
+ *     waitForIdle()'s `if (this.isIdle) return;`, ~line 1171). A live read
+ *     can't tell these two "manual" cases apart; it's degenerate (always
+ *     false) exactly on the path that matters most: our own trigger.
+ *
+ * So the gate is `ourCompactionInFlight || runActive`. ourCompactionInFlight
+ * is set true the instant triggerCompaction() decides to actually call
+ * ctx.compact() — strictly before that call's own internal abort() has a
+ * chance to run, so it's a snapshot of the true pre-abort state, taken by
+ * the one caller (us) who's actually in a position to take it — and cleared
+ * false in onComplete, onError, and the outer synchronous catch, so it can
+ * never get stuck true past our own attempt's resolution. Because
+ * triggerCompaction() is now only ever invoked from turn_end (mid-run by
+ * definition), ourCompactionInFlight being true always correctly means a
+ * run was active a moment before we (deliberately) aborted it — sidestepping
+ * the abort-ordering problem entirely for our own case instead of trying to
+ * out-race it. For every other "manual" case (a foreign /compact, another
+ * extension's compact()) there is no hook that fires before that caller's
+ * own abort() runs, so there's no reliable signal available at all;
+ * runActive there reads false the same as the genuinely-idle case, which
+ * means we simply don't auto-continue for compactions we didn't trigger
+ * ourselves — an acceptable default, since a human present enough to type
+ * /compact by hand can just as easily type "continue" if they want to.
+ *
+ * Diagnostic logging removed: the 2026-07-22 diag() helper and its call
+ * sites (message_end no longer even has a triggerCompaction() call site to
+ * log around) have served their purpose — the race they were added to
+ * confirm is exactly the one this fix addresses. Nothing about the guard
+ * logic itself changed as a result of removing them (they were purely
+ * additive, per their own original comments).
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -184,20 +331,6 @@ import { DEFAULT_COMPACTION_SETTINGS } from "@earendil-works/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
-
-// TEMPORARY DIAGNOSTIC LOGGING — remove once the race is confirmed/fixed. Added 2026-07-22.
-// Investigating: a second, real "manual"-reason compaction veto observed twice
-// shortly after the upstream guard in triggerCompaction() already deferred a
-// first attempt. Logs are appended via pi.appendEntry() (confirmed real API:
-// ExtensionAPI.appendEntry<T = unknown>(customType: string, data?: T): void —
-// docs/extensions.md "### pi.appendEntry(customType, data?)", and
-// dist/core/extensions/types.d.ts line 911, `appendEntry` is on ExtensionAPI
-// only, NOT on ExtensionContext — there is no ctx.appendEntry) so entries land
-// in the session's .jsonl file (unlike ctx.ui.notify, which is TUI-ephemeral
-// and never written to the transcript). Purely additive — no guard/logic
-// behavior below is changed by this diagnostic code.
-// Retrieve later with:
-//   grep '"source":"context-guardian-diag"' ~/.pi/agent/sessions/--data-dev-work-ntv-player-server--/*.jsonl
 
 interface GuardianConfig {
 	proactiveCompactionRatio: number;
@@ -224,26 +357,32 @@ function readConfig(): GuardianConfig {
 const config = readConfig();
 
 export default function (pi: ExtensionAPI): void {
-	// TEMPORARY DIAGNOSTIC LOGGING — remove once the race is confirmed/fixed. Added 2026-07-22.
-	// appendEntry lives on `pi` (ExtensionAPI), not `ctx` (ExtensionContext) — see
-	// the file-header note above for the confirmed signature/citation. Swallow
-	// any error so a diagnostic-logging failure can never affect real behavior.
-	const diag = (event: Record<string, unknown>) => {
-		try {
-			pi.appendEntry("context-guardian-diag", {
-				source: "context-guardian-diag",
-				timestamp: new Date().toISOString(),
-				...event,
-			});
-		} catch {}
-	};
-
 	// Edge-detect the threshold crossing (same idiom as the harness's own
 	// trigger-compact.ts example): ask once per upward crossing, not on every
 	// message_end while already above it. After a successful compaction,
 	// usage drops well below threshold, so this naturally re-arms itself for
 	// the next time context climbs back up.
 	let previousRatio: number | null = null;
+
+	// Set true when message_end detects an upward threshold crossing, cleared
+	// once turn_end actually attempts a compaction. See the 2026-08-03 header
+	// section (fix part 1) for why firing itself is deferred to turn_end
+	// instead of happening right there in message_end.
+	let compactionDue = false;
+
+	// Tracks whether a low-level agent run is currently active. See the
+	// 2026-08-03 header section (fix part 2) for the agent_settled citation
+	// and why that event, not agent_end, is the "won't run again on its own"
+	// signal this needs.
+	let runActive = false;
+
+	// True from the instant triggerCompaction() decides to call ctx.compact()
+	// until that attempt resolves (onComplete/onError) or throws
+	// synchronously. See the 2026-08-03 header section (fix part 2) for why
+	// this, not a live runActive read, is the only reliable "was a run
+	// active" signal available once session_compact actually fires for our
+	// own compaction attempts.
+	let ourCompactionInFlight = false;
 
 	// Pending tool call tracker for the session_before_compact guard below.
 	//
@@ -263,52 +402,26 @@ export default function (pi: ExtensionAPI): void {
 	// hook guaranteed to pair 1:1 with tool_call and never leak an entry.
 	const pendingToolCallIds = new Set<string>();
 
-	// TEMPORARY DIAGNOSTIC LOGGING — see file header. currentRatio/proactiveRatio
-	// aren't otherwise in scope inside triggerCompaction() (only message_end
-	// computes them) — these two vars just carry them across for the diag log
-	// below, purely additive, not read by any real guard/logic.
-	let currentRatioForDiag: number | undefined;
-	let proactiveRatioForDiag: number | undefined;
-
 	const triggerCompaction = (ctx: ExtensionContext) => {
-		// TEMPORARY DIAGNOSTIC LOGGING — see file header. Log before the guard check.
-		diag({
-			event: "trigger_attempt",
-			pendingSize: pendingToolCallIds.size,
-			currentRatio: currentRatioForDiag,
-			proactiveRatio: proactiveRatioForDiag,
-		});
-
 		// Primary guard (see header comment for the trace): check BEFORE calling
 		// ctx.compact() at all. session_before_compact fires too late — inside
 		// AgentSession.compact(), after _disconnectFromAgent()/abort() already
 		// ran — to protect anything for our own trigger. Skipping the call here
 		// means those two never execute on our behalf while a call is pending.
 		if (pendingToolCallIds.size > 0) {
-			// TEMPORARY DIAGNOSTIC LOGGING — see file header.
-			diag({ event: "deferred_upstream", pendingSize: pendingToolCallIds.size });
-
 			if (ctx.hasUI) {
 				ctx.ui.notify(
 					`[context-guardian] Deferring compaction — ${pendingToolCallIds.size} tool call(s) still in flight. Will retry once they finish.`,
 					"info",
 				);
 			}
-			// Same reset as the session_before_compact veto below, and for the
-			// same reason: this attempt didn't happen, so currentRatio is still
-			// above proactiveRatio, but previousRatio was already set to that same
-			// value on this message_end tick. Left alone, the edge-detect in
-			// message_end (previousRatio <= proactiveRatio && currentRatio >
-			// proactiveRatio) would never see an upward crossing again and this
-			// deferral would never be retried. Forcing it back to 0 makes the
-			// next tick look like a fresh crossing.
-			previousRatio = 0;
+			// turn_end already cleared compactionDue before calling in here —
+			// this attempt didn't happen, so re-set it so the next turn_end
+			// retries. Replaces the old previousRatio = 0 re-arm trick — see
+			// the 2026-08-03 header section (fix part 1).
+			compactionDue = true;
 			return;
 		}
-
-		// TEMPORARY DIAGNOSTIC LOGGING — see file header. Control reached past the
-		// upstream guard — pendingSize should be 0 here.
-		diag({ event: "compact_called", pendingSize: pendingToolCallIds.size });
 
 		if (ctx.hasUI) {
 			ctx.ui.notify(
@@ -316,6 +429,10 @@ export default function (pi: ExtensionAPI): void {
 				"info",
 			);
 		}
+		// Snapshot "a run is active" before compact()'s own internal abort()
+		// gets a chance to flip it false. See the 2026-08-03 header section
+		// (fix part 2) for why this has to happen here, not read later.
+		ourCompactionInFlight = true;
 		try {
 			ctx.compact({
 				customInstructions:
@@ -332,17 +449,17 @@ export default function (pi: ExtensionAPI): void {
 					// permanently wedge this extension into vetoing every future
 					// compaction.
 					pendingToolCallIds.clear();
+					ourCompactionInFlight = false;
 					if (ctx.hasUI) ctx.ui.notify("[context-guardian] Proactive compaction completed.", "info");
 				},
 				onError: (error) => {
-					// TEMPORARY DIAGNOSTIC LOGGING — see file header. Logged BEFORE the
-					// "Compaction cancelled" suppression below, so this fires
-					// regardless of whether that suppression later returns early.
-					diag({ event: "manual_compact_error", message: error.message });
-
 					// Same safety-net as onComplete — covers both a genuine failure
 					// and the "Compaction cancelled" case below.
 					pendingToolCallIds.clear();
+					ourCompactionInFlight = false;
+					// This attempt didn't happen either — re-arm so the next
+					// turn_end retries.
+					compactionDue = true;
 
 					// "Compaction cancelled" is the exact message the harness throws
 					// when a session_before_compact handler returns { cancel: true }
@@ -371,6 +488,8 @@ export default function (pi: ExtensionAPI): void {
 			// Belt-and-suspenders: ctx.compact() is typed as a synchronous void
 			// fire-and-forget call, so it shouldn't throw, but if it does, don't
 			// take the session down over a proactive optimization.
+			ourCompactionInFlight = false;
+			compactionDue = true;
 			const msg = err instanceof Error ? err.message : String(err);
 			if (ctx.hasUI) {
 				ctx.ui.notify(`[context-guardian] Could not trigger compaction (${msg}). Run /compact manually.`, "warning");
@@ -378,36 +497,23 @@ export default function (pi: ExtensionAPI): void {
 		}
 	};
 
+	pi.on("agent_start", () => {
+		runActive = true;
+	});
+
+	pi.on("agent_settled", () => {
+		runActive = false;
+	});
+
 	pi.on("tool_call", (event) => {
 		pendingToolCallIds.add(event.toolCallId);
-		// TEMPORARY DIAGNOSTIC LOGGING — see file header.
-		diag({
-			event: "pending_add",
-			toolCallId: event.toolCallId,
-			toolName: event.toolName,
-			pendingSize: pendingToolCallIds.size,
-		});
 	});
 
 	pi.on("tool_execution_end", (event) => {
 		pendingToolCallIds.delete(event.toolCallId);
-		// TEMPORARY DIAGNOSTIC LOGGING — see file header.
-		diag({
-			event: "pending_remove",
-			toolCallId: event.toolCallId,
-			pendingSize: pendingToolCallIds.size,
-		});
 	});
 
 	pi.on("session_before_compact", (_event, ctx) => {
-		// TEMPORARY DIAGNOSTIC LOGGING — see file header. Logged at entry, before
-		// this handler's own early-return/veto decision below.
-		diag({
-			event: "session_before_compact_check",
-			pendingSize: pendingToolCallIds.size,
-			willVeto: pendingToolCallIds.size > 0,
-		});
-
 		// Secondary/defense-in-depth only. This fires AFTER AgentSession.compact()
 		// has already called _disconnectFromAgent()/abort() (see header comment
 		// trace), so for our OWN ctx.compact() calls it's too late to prevent
@@ -431,40 +537,27 @@ export default function (pi: ExtensionAPI): void {
 			);
 		}
 
-		// This compaction attempt did not happen, so context usage is still at
-		// (or above) currentRatio from the last message_end tick — but
-		// previousRatio was already set to that same value there, and the
-		// edge-detect below only fires on an UPWARD crossing (previousRatio <=
-		// proactiveRatio && currentRatio > proactiveRatio). Left alone,
-		// previousRatio would stay pinned above proactiveRatio forever and the
-		// threshold would never "cross" again, so a deferred compaction would
-		// never be retried even though it's still needed. Force previousRatio
-		// back below the threshold so the next message_end tick treats current
-		// usage as a fresh crossing and re-attempts — this deliberately does
-		// NOT touch the edge-detection logic itself, it just un-sticks it for
-		// this one case.
-		previousRatio = 0;
-
+		// No compactionDue/previousRatio bookkeeping needed here anymore (see
+		// the 2026-08-03 header section, fix part 1) — this veto exists for
+		// callers we don't control, and doesn't own the retry state for our own
+		// scheduling. If it ever does veto one of OUR OWN attempts instead (the
+		// rare race the comment above already calls out as unlikely, since we
+		// guard upstream of ctx.compact() first), triggerCompaction()'s own
+		// onError re-arms compactionDue from that same "Compaction cancelled"
+		// error.
 		return { cancel: true };
 	});
 
 	pi.on("session_compact", (event, ctx) => {
-		// TEMPORARY DIAGNOSTIC LOGGING — see file header. reason/willRetry are the
-		// only relevant fields on this event (SessionCompactEvent, checked in the
-		// installed types.d.ts) beyond compactionEntry/fromExtension; included
-		// fromExtension too since it's cheap and tells us whether this was our
-		// own trigger.
-		diag({
-			event: "session_compact_fired",
-			reason: event.reason,
-			willRetry: event.willRetry,
-			fromExtension: event.fromExtension,
-		});
-
 		// See header comment for the full trace. willRetry: true means the
 		// harness's own overflow recovery already resumes the turn — acting here
 		// too would double-continue. Only act when it did NOT auto-retry.
 		if (event.willRetry) return;
+
+		// Gate on a run actually having been active — see the 2026-08-03 header
+		// section (fix part 2) for the full abort-ordering trace on why this is
+		// `ourCompactionInFlight || runActive` and not a bare runActive read.
+		if (!ourCompactionInFlight && !runActive) return;
 
 		if (ctx.hasUI) {
 			ctx.ui.notify(
@@ -484,6 +577,16 @@ export default function (pi: ExtensionAPI): void {
 		);
 	});
 
+	pi.on("turn_end", (_event, ctx) => {
+		// Fires at the end of each turn, after that turn's tool calls have
+		// already resolved — see the 2026-08-03 header section (fix part 1)
+		// for the citations backing this timing.
+		if (!compactionDue) return;
+		if (pendingToolCallIds.size > 0) return;
+		compactionDue = false;
+		triggerCompaction(ctx);
+	});
+
 	pi.on("message_end", (_event, ctx) => {
 		// ctx.getContextUsage() already gives us the harness's own computed
 		// token count (last assistant usage + estimate for trailing messages) —
@@ -501,12 +604,10 @@ export default function (pi: ExtensionAPI): void {
 		previousRatio = currentRatio;
 		if (!crossedThreshold) return;
 
-		// TEMPORARY DIAGNOSTIC LOGGING — see file header. Stash for the
-		// trigger_attempt log inside triggerCompaction() (not otherwise in scope
-		// there); purely additive, not consumed by any real guard/logic.
-		currentRatioForDiag = currentRatio;
-		proactiveRatioForDiag = proactiveRatio;
-
-		triggerCompaction(ctx);
+		// Don't trigger compaction from here — see the 2026-08-03 header
+		// section (fix part 1). message_end fires mid-turn, and ctx.compact()
+		// aborts the in-flight turn; just flag that we're due and let turn_end
+		// below fire it once this turn's work is actually done.
+		compactionDue = true;
 	});
 }
