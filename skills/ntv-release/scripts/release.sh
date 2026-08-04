@@ -365,7 +365,7 @@ cmd_publish() {
     local RELEASE_ID; RELEASE_ID="$(basename "$RELEASE_DIR")"
 
     local BUILD_ID
-    BUILD_ID="$(grep 'build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}')"
+    BUILD_ID="$(grep 'build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
     [[ -n "$BUILD_ID" ]] || err "no build_id in $RELEASE_DIR/release.yaml"
 
     # 1. bash -n every script (also re-checked by the validator)
