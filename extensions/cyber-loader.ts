@@ -41,8 +41,20 @@ function generateGlitchFrames(count: number): string[] {
 	return frames;
 }
 
+function generateTypewriterFrames(): string[] {
+	return [
+		rgb(150, 150, 150) + "..." + RESET,
+		rgb(200, 200, 200) + "T.." + RESET,
+		rgb(200, 200, 200) + "TY." + RESET,
+		rgb(255, 255, 255) + "TYP" + RESET,
+		rgb(200, 200, 200) + "YP." + RESET,
+		rgb(150, 150, 150) + "P.." + RESET,
+	];
+}
+
 const matrixFrames = generateMatrixFrames(30);
 const glitchFrames = generateGlitchFrames(30);
+const typewriterFrames = generateTypewriterFrames();
 
 export default function (pi: ExtensionAPI): void {
 	const matrixIndicator: WorkingIndicatorOptions = {
@@ -54,8 +66,36 @@ export default function (pi: ExtensionAPI): void {
 		frames: glitchFrames,
 		intervalMs: 60,
 	};
+	
+	const typewriterIndicator: WorkingIndicatorOptions = {
+		frames: typewriterFrames,
+		intervalMs: 150,
+	};
 
 	let activeTools = 0;
+
+	pi.registerCommand("cyber", {
+		description: "Test cyber-loader animations (matrix, glitch, typewriter, auto)",
+		handler: async (args: string, ctx: ExtensionContext): Promise<void> => {
+			const mode = args.trim().toLowerCase();
+			if (mode === "matrix") {
+				ctx.ui.setWorkingIndicator(matrixIndicator);
+				ctx.ui.notify("Cyber-loader overridden: Matrix (Working/Idle)", "info");
+			} else if (mode === "glitch") {
+				ctx.ui.setWorkingIndicator(glitchIndicator);
+				ctx.ui.notify("Cyber-loader overridden: Glitch (Tool Execution)", "info");
+			} else if (mode === "typewriter") {
+				ctx.ui.setWorkingIndicator(typewriterIndicator);
+				ctx.ui.notify("Cyber-loader overridden: Typewriter (Thinking)", "info");
+			} else if (mode === "auto" || mode === "reset") {
+				activeTools = 0;
+				ctx.ui.setWorkingIndicator(matrixIndicator);
+				ctx.ui.notify("Cyber-loader restored to Auto mode", "info");
+			} else {
+				ctx.ui.notify("Usage: /cyber [matrix|glitch|typewriter|auto]", "error");
+			}
+		},
+	});
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext): void => {
 		activeTools = 0;
