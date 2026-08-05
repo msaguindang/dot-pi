@@ -186,17 +186,27 @@ export default function (pi: ExtensionAPI): void {
 				showcaseInterval = undefined;
 			}
 			if (mode === "matrix") {
+				isThinking = true;
+				activeTools = 0;
 				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(matrixIndicator);
-				ctx.ui.notify("Cyber-loader overridden: Matrix (Working/Idle)", "info");
+				startMessageCycle(ctx);
+				ctx.ui.notify("Cyber-loader overridden: Matrix (Thinking)", "info");
 			} else if (mode === "glitch") {
+				isThinking = false;
+				activeTools = 1;
 				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(glitchIndicator);
-				ctx.ui.notify("Cyber-loader overridden: Glitch (Tool Execution)", "info");
+				startMessageCycle(ctx);
+				ctx.ui.notify("Cyber-loader overridden: Glitch (Working)", "info");
 			} else if (mode === "typewriter") {
+				isThinking = false;
+				activeTools = 0;
+				stopMessageCycle(ctx);
 				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(typewriterIndicator);
-				ctx.ui.notify("Cyber-loader overridden: Typewriter (Thinking)", "info");
+				ctx.ui.setWorkingMessage("Thinking: Typewriter fallback test");
+				ctx.ui.notify("Cyber-loader overridden: Typewriter (Thinking fallback)", "info");
 			} else if (mode === "showcase") {
 				ctx.ui.setWorkingVisible(true);
 				ctx.ui.notify("Starting Cyber-loader showcase...", "info");
@@ -204,12 +214,22 @@ export default function (pi: ExtensionAPI): void {
 				
 				const runShowcaseStep = () => {
 					if (step === 0) {
+						isThinking = true;
+						activeTools = 0;
 						ctx.ui.setWorkingIndicator(matrixIndicator);
-						ctx.ui.notify("Showcase [1/3]: Matrix Rain (Idle)", "info");
+						startMessageCycle(ctx);
+						ctx.ui.notify("Showcase [1/3]: Matrix Rain (Thinking)", "info");
 					} else if (step === 1) {
+						isThinking = false;
+						activeTools = 1;
 						ctx.ui.setWorkingIndicator(glitchIndicator);
+						startMessageCycle(ctx);
 						ctx.ui.notify("Showcase [2/3]: Glitch (Working)", "info");
 					} else if (step === 2) {
+						isThinking = false;
+						activeTools = 0;
+						stopMessageCycle(ctx);
+						ctx.ui.setWorkingMessage("Thinking: Typewriter fallback test");
 						ctx.ui.setWorkingIndicator(typewriterIndicator);
 						ctx.ui.notify("Showcase [3/3]: Typewriter", "info");
 					} else {
@@ -217,6 +237,9 @@ export default function (pi: ExtensionAPI): void {
 							clearInterval(showcaseInterval);
 							showcaseInterval = undefined;
 						}
+						isThinking = false;
+						activeTools = 0;
+						stopMessageCycle(ctx);
 						ctx.ui.setWorkingIndicator(matrixIndicator);
 						ctx.ui.setWorkingVisible(false);
 						ctx.ui.notify("Showcase complete. Restored to Auto mode.", "info");
@@ -225,9 +248,11 @@ export default function (pi: ExtensionAPI): void {
 				};
 				
 				runShowcaseStep(); // step 0 executes immediately
-				showcaseInterval = setInterval(runShowcaseStep, 3000);
+				showcaseInterval = setInterval(runShowcaseStep, 4500);
 			} else if (mode === "auto" || mode === "reset") {
+				isThinking = false;
 				activeTools = 0;
+				stopMessageCycle(ctx);
 				ctx.ui.setWorkingIndicator(matrixIndicator);
 				ctx.ui.setWorkingVisible(false);
 				ctx.ui.notify("Cyber-loader restored to Auto mode", "info");
