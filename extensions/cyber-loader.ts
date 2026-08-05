@@ -19,7 +19,20 @@ const ACTION_QUOTES = [
 	"Heading set.",
 	"Telepresence secure.",
 	"It shall be done.",
-	"I read ya."
+	"I read ya.",
+	"In the pipe.",
+	"Go, go, go!",
+	"Let's move!",
+	"Rock 'n Roll!",
+	"Let's burn.",
+	"I'm gone.",
+	"Move it!",
+	"Proceeding.",
+	"Job finished.",
+	"Immediately.",
+	"Gladly!",
+	"Live for the Swarm!",
+	"For the Overmind!"
 ];
 
 const THINKING_QUOTES = [
@@ -27,7 +40,20 @@ const THINKING_QUOTES = [
 	"State thy bidding.",
 	"Power overwhelming.",
 	"Receiving.",
-	"Telepresence secure."
+	"Telepresence secure.",
+	"I am prepared.",
+	"Warp field stabilized.",
+	"The merging is complete.",
+	"I have returned.",
+	"Carrier has arrived.",
+	"I'm waiting...",
+	"Channel open.",
+	"State your will.",
+	"Systems online.",
+	"Comm-link online.",
+	"Standing by.",
+	"We are one.",
+	"En Taro Adun!"
 ];
 
 function rgb(r: number, g: number, b: number): string {
