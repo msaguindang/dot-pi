@@ -11,6 +11,27 @@ Nothing is trusted on the worker's word alone.
 
 Pipeline: **task file → validate → dispatch worker → parent verify → dispatch reviewer → (recover if needed)**.
 
+## Default Trigger — Don't Wait to Be Asked
+
+This pipeline is the agent's own default initiative for non-trivial planning
+and mutation work — not something invoked only when the user says "have
+scout look at it" or "dispatch a worker for this". Two triggers apply
+automatically, without being asked:
+
+1. **Before drafting an implementation plan** for a non-trivial ticket or
+   task, dispatch a scout / Explore-type read-only subagent to analyze the
+   relevant mechanism first. Plan from what the scout found, not from
+   assumption.
+2. **Before any code mutation, test run, or build/deploy action**, route
+   through this airlock pipeline (task file → validate → worker → verify →
+   review) — or, at minimum, dispatch a worker — by default for non-trivial
+   work.
+
+Exception: trivial, single-line, obviously-correct changes (typo fix,
+one-line config value, comment update) don't need the full ceremony — use
+judgement, don't spin up a four-step pipeline for a one-line diff. If it's
+unclear whether a task is "trivial", it isn't — run the pipeline.
+
 MUST, no exception: for any task file targeting release/build/QA-candidate/
 deploy work — anything touching `ntv-release`, a QA-candidate directory, or
 a script governed by `deploy-script-standard.md` — the task file MUST be
