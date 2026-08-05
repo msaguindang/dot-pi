@@ -56,3 +56,21 @@ Exit codes:
 - `0`: No suspicious phrases found.
 - `1`: Suspicious phrases found; prompt the user for confirmation.
 - `2`: Invalid usage.
+
+## Script: `scripts/validate_handoff.sh`
+
+Lints a handoff document (markdown file) against `~/.agents/standards/handoff-doc-standard.md`. Use before treating any handoff doc as ready for takeover, or after writing one.
+
+```bash
+~/.pi/agent/skills/delegation-validator/scripts/validate_handoff.sh /path/to/handoff.md
+```
+
+Checks (all parsed live from the standard — no hardcoded section list, so it stays correct as the standard evolves):
+1. **Required sections present** — whatever the standard's "Required Sections (in order)" list currently contains (e.g. Ignition Block, Current State, Key Decisions with Rationale, CONFIRMED vs ASSUMED, Open Risks, Concrete Next Steps, Artifacts & Paths). Matches by heading keyword, so it tolerates minor heading-text variation and a CONFIRMED/ASSUMED section expressed as one heading or two.
+2. **CONFIRMED items carry an evidence-source indicator** — each bullet under CONFIRMED must have an `evidence_source:` tag (per `tool-policy.md` §4), an inline "Evidence:" citation, a `file:line`/"line N" reference, a commit hash, a URL, or a screenshot reference. ASSUMED bullets are not required to have one.
+3. **No relative paths** — flags `./`, `../`, and `~/` anywhere in the doc (the standard requires absolute paths only).
+
+Exit codes:
+- `0`: doc meets the standard.
+- `1`: one or more lint failures (missing sections / unlabeled CONFIRMED items / relative paths) — printed with line numbers.
+- `2`: invalid usage, unreadable file, or the standard's section list could not be parsed.
