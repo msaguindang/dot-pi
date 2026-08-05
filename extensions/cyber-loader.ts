@@ -104,6 +104,7 @@ export default function (pi: ExtensionAPI): void {
 	let activeTools = 0;
 	let isThinking = false;
 	let messageInterval: ReturnType<typeof setInterval> | undefined;
+	let showcaseInterval: ReturnType<typeof setInterval> | undefined;
 	let actionIndex = 0;
 	let thinkingIndex = 0;
 
@@ -177,9 +178,13 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	pi.registerCommand("cyber", {
-		description: "Test cyber-loader animations (matrix, glitch, typewriter, auto)",
+		description: "Test cyber-loader animations (matrix, glitch, typewriter, showcase, auto)",
 		handler: async (args: string, ctx: ExtensionContext): Promise<void> => {
 			const mode = args.trim().toLowerCase();
+			if (showcaseInterval) {
+				clearInterval(showcaseInterval);
+				showcaseInterval = undefined;
+			}
 			if (mode === "matrix") {
 				ctx.ui.setWorkingIndicator(matrixIndicator);
 				ctx.ui.notify("Cyber-loader overridden: Matrix (Working/Idle)", "info");
@@ -189,12 +194,39 @@ export default function (pi: ExtensionAPI): void {
 			} else if (mode === "typewriter") {
 				ctx.ui.setWorkingIndicator(typewriterIndicator);
 				ctx.ui.notify("Cyber-loader overridden: Typewriter (Thinking)", "info");
+			} else if (mode === "showcase") {
+				ctx.ui.notify("Starting Cyber-loader showcase...", "info");
+				let step = 0;
+				
+				const runShowcaseStep = () => {
+					if (step === 0) {
+						ctx.ui.setWorkingIndicator(matrixIndicator);
+						ctx.ui.notify("Showcase [1/3]: Matrix Rain (Idle)", "info");
+					} else if (step === 1) {
+						ctx.ui.setWorkingIndicator(glitchIndicator);
+						ctx.ui.notify("Showcase [2/3]: Glitch (Working)", "info");
+					} else if (step === 2) {
+						ctx.ui.setWorkingIndicator(typewriterIndicator);
+						ctx.ui.notify("Showcase [3/3]: Typewriter", "info");
+					} else {
+						if (showcaseInterval) {
+							clearInterval(showcaseInterval);
+							showcaseInterval = undefined;
+						}
+						ctx.ui.setWorkingIndicator(matrixIndicator);
+						ctx.ui.notify("Showcase complete. Restored to Auto mode.", "info");
+					}
+					step++;
+				};
+				
+				runShowcaseStep(); // step 0 executes immediately
+				showcaseInterval = setInterval(runShowcaseStep, 3000);
 			} else if (mode === "auto" || mode === "reset") {
 				activeTools = 0;
 				ctx.ui.setWorkingIndicator(matrixIndicator);
 				ctx.ui.notify("Cyber-loader restored to Auto mode", "info");
 			} else {
-				ctx.ui.notify("Usage: /cyber [matrix|glitch|typewriter|auto]", "error");
+				ctx.ui.notify("Usage: /cyber [matrix|glitch|typewriter|showcase|auto]", "error");
 			}
 		},
 	});
@@ -243,6 +275,10 @@ export default function (pi: ExtensionAPI): void {
 		if (messageInterval) {
 			clearInterval(messageInterval);
 			messageInterval = undefined;
+		}
+		if (showcaseInterval) {
+			clearInterval(showcaseInterval);
+			showcaseInterval = undefined;
 		}
 	});
 }
