@@ -26,9 +26,7 @@ const THINKING_QUOTES = [
 	"Thoughts in chaos.",
 	"State thy bidding.",
 	"Power overwhelming.",
-	"I stand ready.",
 	"Receiving.",
-	"Awaiting command.",
 	"Telepresence secure."
 ];
 
