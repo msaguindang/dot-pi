@@ -186,15 +186,19 @@ export default function (pi: ExtensionAPI): void {
 				showcaseInterval = undefined;
 			}
 			if (mode === "matrix") {
+				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(matrixIndicator);
 				ctx.ui.notify("Cyber-loader overridden: Matrix (Working/Idle)", "info");
 			} else if (mode === "glitch") {
+				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(glitchIndicator);
 				ctx.ui.notify("Cyber-loader overridden: Glitch (Tool Execution)", "info");
 			} else if (mode === "typewriter") {
+				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(typewriterIndicator);
 				ctx.ui.notify("Cyber-loader overridden: Typewriter (Thinking)", "info");
 			} else if (mode === "showcase") {
+				ctx.ui.setWorkingVisible(true);
 				ctx.ui.notify("Starting Cyber-loader showcase...", "info");
 				let step = 0;
 				
@@ -214,6 +218,7 @@ export default function (pi: ExtensionAPI): void {
 							showcaseInterval = undefined;
 						}
 						ctx.ui.setWorkingIndicator(matrixIndicator);
+						ctx.ui.setWorkingVisible(false);
 						ctx.ui.notify("Showcase complete. Restored to Auto mode.", "info");
 					}
 					step++;
@@ -224,6 +229,7 @@ export default function (pi: ExtensionAPI): void {
 			} else if (mode === "auto" || mode === "reset") {
 				activeTools = 0;
 				ctx.ui.setWorkingIndicator(matrixIndicator);
+				ctx.ui.setWorkingVisible(false);
 				ctx.ui.notify("Cyber-loader restored to Auto mode", "info");
 			} else {
 				ctx.ui.notify("Usage: /cyber [matrix|glitch|typewriter|showcase|auto]", "error");
