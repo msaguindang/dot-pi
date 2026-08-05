@@ -31,6 +31,35 @@ self-detach via re-download, SIGHUP trap, idempotency gate, crontab window,
   component changed. No npm install / no OS package changes on fleet devices.
 - **No fleet rollout before test-device verification** (verification.md checklist).
 
+## Operating Defaults
+
+- **Session-continuation scope lock.** When resuming a release from a handoff doc, scope
+  is frozen to exactly what the handoff doc specifies. No new findings, no
+  re-investigation of settled root causes, no refactors — unless the user explicitly
+  reopens scope.
+- **S3 round-trip verify is mandatory, not optional.** After every upload, verify the
+  live object matches the recorded checksum — not just that a file with that name
+  exists. `release.sh publish` step 5 + `validate-release.sh` stage 5 already run
+  `aws s3 ls` and confirm every checksummed filename is present
+  (`scripts/validate-release.sh:73-95`), but that is presence-only — it does NOT
+  re-derive or compare SHA-256 against the uploaded bytes; no `head-object` /
+  content-hash step exists (`scripts/gen-checksums.sh` only self-checks the LOCAL
+  zips/scripts before upload, `scripts/gen-checksums.sh:37`). Until that gap is closed,
+  treat a filename-presence PASS as necessary but not sufficient: re-download or
+  `aws s3api head-object` the uploaded objects and `sha256sum --check` against
+  `checksums.sha256` before reporting an upload verified. Fail loudly (non-zero exit /
+  explicit FAIL in the report) on any mismatch.
+- **Subagent output hygiene.** Subagents dispatched during a release ritual return
+  verdict/summary only. Full logs, command output, or device output goes to an artifact
+  file referenced by path — never pasted wholesale into the orchestrator's own context.
+- **Handoff doc protocol.** Re-read the relevant `agent-sessions/` handoff doc at the
+  start of every phase. After every phase completes, append outcome + evidence (SHAs,
+  verdicts, timestamps) to its progress log.
+- **Blast-radius default.** No device or fleet mutation beyond what's explicitly
+  authorized for the current step. Any failure stops the ritual, reports evidence
+  (including raw error bodies), and awaits instruction — never retry blindly or proceed
+  past a failure.
+
 ## Pre-Merge QA Gate (Mandatory)
 
 **Pre-merge QA MUST pass before merge into `next`. Merge before QA is prohibited.**
@@ -135,6 +164,17 @@ been merged into `next`. The target package version must be committed on the fix
 19. **Review** — human verifies: release.yaml fields populated, `aws s3 ls <BUILD_ID>/`
     complete, checksums pass, gitops commit present on both remotes.
     Verdict: APPROVED or BLOCKED.
+
+## Completion Report Format
+
+Any report marking a phase or the full ritual complete and awaiting user action MUST
+state, when applicable:
+
+- Whether the user needs to build or upload anything themselves — explicit yes/no.
+- The exact command/one-liner the user would run to test or proceed, verbatim (not
+  "the deploy command").
+- Which device(s) already have the artifact deployed, and which branches/worktrees hold
+  the reviewable code.
 
 ## Usage
 

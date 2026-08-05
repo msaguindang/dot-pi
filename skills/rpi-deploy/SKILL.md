@@ -96,6 +96,13 @@ deploy_to_pi.sh release/v2.9.45 dev ui --yes
    If the verdict was downgraded due to dirty build(s), say so — never report a dirty
    deploy as fully verified.
 
+### Completion Report Format
+
+The final report to the user MUST state plainly: whether the deploy is done and
+running (not just uploaded), and the exact way to independently check it — e.g. the
+build-info URL(s) and the `GET http://<host>:3215/api/checkup/ping` check. Never leave
+the user to ask "how do I verify this" after the fact.
+
 ## Preflight rules (enforced by the script)
 
 - Directory resolution (single rule, both repos): use the repo root
