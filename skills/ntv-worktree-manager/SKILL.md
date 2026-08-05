@@ -54,6 +54,7 @@ $NTV_DIR/
 - **ALWAYS** perform a `git fetch origin` before creating a new worktree to ensure the base branch is up-to-date.
 - **VERIFY** `NTV_DIR` is set and all paths resolve before executing.
 - **USE** the provided `manage_worktrees.sh` script to maintain consistency.
+- **STATE THE PLAN FIRST** — before creating an integration worktree/branch, or cherry-picking/merging any approved commits into it, state the concrete plan unprompted: baseline commit, branch name, cherry-pick/merge order, known conflict points, and the push/merge boundary (what gets pushed/merged and when). Get explicit approval before executing. This is a default step, not something to wait to be asked for.
 
 ## Bundled Resources
 - `scripts/manage_worktrees.sh` — executes all git operations
