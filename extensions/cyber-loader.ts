@@ -74,10 +74,10 @@ function generateTypewriterFrames(): string[] {
 	return [
 		rgb(150, 150, 150) + "..." + RESET,
 		rgb(200, 200, 200) + "T.." + RESET,
-		rgb(200, 200, 200) + "TY." + RESET,
-		rgb(255, 255, 255) + "TYP" + RESET,
-		rgb(200, 200, 200) + "YP." + RESET,
-		rgb(150, 150, 150) + "P.." + RESET,
+		rgb(200, 200, 200) + "TR." + RESET,
+		rgb(255, 255, 255) + "TRA" + RESET,
+		rgb(200, 200, 200) + "RA." + RESET,
+		rgb(150, 150, 150) + "A.." + RESET,
 	];
 }
 
