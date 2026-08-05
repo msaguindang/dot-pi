@@ -39,16 +39,17 @@ self-detach via re-download, SIGHUP trap, idempotency gate, crontab window,
   reopens scope.
 - **S3 round-trip verify is mandatory, not optional.** After every upload, verify the
   live object matches the recorded checksum — not just that a file with that name
-  exists. `release.sh publish` step 5 + `validate-release.sh` stage 5 already run
-  `aws s3 ls` and confirm every checksummed filename is present
-  (`scripts/validate-release.sh:73-95`), but that is presence-only — it does NOT
-  re-derive or compare SHA-256 against the uploaded bytes; no `head-object` /
-  content-hash step exists (`scripts/gen-checksums.sh` only self-checks the LOCAL
-  zips/scripts before upload, `scripts/gen-checksums.sh:37`). Until that gap is closed,
-  treat a filename-presence PASS as necessary but not sufficient: re-download or
-  `aws s3api head-object` the uploaded objects and `sha256sum --check` against
-  `checksums.sha256` before reporting an upload verified. Fail loudly (non-zero exit /
-  explicit FAIL in the report) on any mismatch.
+  exists. `release.sh publish` step 5 + `validate-release.sh` stage 5 run `aws s3 ls`
+  for filename presence, and stage 5b (`scripts/validate-release.sh`, "Stage 5b: S3
+  content verification") re-derives/compares content hashes against the uploaded
+  bytes: `aws s3api head-object` ETag compared to the local file's MD5 for ordinary
+  (non-multipart) uploads — current artifact sizes are well under the AWS CLI's 8MiB
+  multipart threshold, so this is the normal path — with an automatic fallback to a
+  streamed `aws s3 cp <s3://...> - | sha256sum` compared against `checksums.sha256`
+  for any object whose ETag indicates a multipart upload (ETag containing `-`). A
+  filename-presence PASS alone is no longer sufficient by construction: stage 5b runs
+  immediately after stage 5 and fails the whole validation (non-zero exit, explicit
+  `[FAIL] CONTENT MISMATCH` line) on any content mismatch.
 - **Subagent output hygiene.** Subagents dispatched during a release ritual return
   verdict/summary only. Full logs, command output, or device output goes to an artifact
   file referenced by path — never pasted wholesale into the orchestrator's own context.
@@ -154,12 +155,15 @@ been merged into `next`. The target package version must be committed on the fix
 15. **Fresh BUILD_ID** — new UUID, collision-checked against all prior release records.
     *(automated by `release.sh init`)*
 16. **S3 upload** — `checksums.sha256` over every zip + script, upload all to
-    `secure-rc/<BUILD_ID>/`, verify via `aws s3 ls`. *(automated by `release.sh publish`)*
+    `secure-rc/<BUILD_ID>/`, verify presence via `aws s3 ls` and content via
+    `head-object` ETag/MD5 (streamed-sha256 fallback for multipart uploads).
+    *(automated by `release.sh publish`)*
 17. **Fleet-gitops record** — release dir with release.yaml, rollback.md, verification.md;
     commit `feat(gitops): add release record for <RELEASE_ID>`; push both remotes.
     *(dir+records by `init`, commit+push by `publish`)*
 18. **Validation** — 4 local stages (files present, `sha256sum --check`, YAML parse,
-    `bash -n` all scripts) via the fleet-gitops validator, plus stage 5 S3 presence.
+    `bash -n` all scripts) via the fleet-gitops validator, plus stage 5 S3 presence and
+    stage 5b S3 content verification.
     *(automated by `validate-release.sh`)*
 19. **Review** — human verifies: release.yaml fields populated, `aws s3 ls <BUILD_ID>/`
     complete, checksums pass, gitops commit present on both remotes.
@@ -219,7 +223,9 @@ records) and push fleet-gitops to both `origin` and `forgejo`.
 
 Exit 0 = PASS. Evidence log: `/tmp/validate-<BUILD_ID>.log`. Delegates stages 1–4 to the
 source-of-truth validator `fleet-gitops/player-apps/tools/validate-release.sh`, adds
-stage 5 (S3 presence of every checksummed file). Note: historical releases fail checksum
+stage 5 (S3 presence of every checksummed file) and stage 5b (content hash of every
+checksummed file against the live S3 object — ETag/MD5, or streamed sha256 for
+multipart uploads). Note: historical releases fail checksum
 validation after their zips are cleaned from the dir — that is expected; validate while
 zips are present.
 
@@ -248,6 +254,7 @@ bundle's BUILD_ID.
 
 - `scripts/release.sh` — orchestrator: `init` (ritual 4–5, 7-scaffold) + `publish` (6, 7-commit)
 - `scripts/validate-release.sh` — ritual 8: stages 1–4 via fleet-gitops validator + stage 5 S3
+  presence + stage 5b S3 content verification (ETag/MD5, multipart-fallback streamed sha256)
 - `scripts/gen-checksums.sh` — `checksums.sha256` over `*.zip` + `*.sh` with self-check
 - `templates/release-yaml-template.yaml` — matches the live fleet-gitops release.yaml shape
 - `templates/rollback-md-template.md`, `templates/verification-md-template.md`
