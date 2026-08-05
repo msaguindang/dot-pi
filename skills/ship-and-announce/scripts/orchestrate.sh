@@ -218,19 +218,31 @@ fi
 
 # ponytail: verifies project visibility + grabs raw issue lines for the listed tickets;
 # full state-transition assertion needs plane-issues.sh structured output — add if it bites.
-if [[ $TICKETS != none && -n $TICKETS ]] && command -v infisical >/dev/null 2>&1 && [[ -d $PLANE_TASKS_DIR ]]; then
+# No --tickets is NOT a reason to skip: worker 3 is required to create a primary
+# ticket in that case (see task-plane-template.md step 2), so it must show up
+# in tickets_created below regardless of whether $TICKETS was supplied.
+if command -v infisical >/dev/null 2>&1 && [[ -d $PLANE_TASKS_DIR ]]; then
   if out=$(cd "$PLANE_TASKS_DIR" && infisical run -- scripts/plane-projects.sh 2>&1 | grep -i "$PLANE_PROJECT" | head -1); then
     note "Plane project visible: $out"
   else
     note "Plane project '$PLANE_PROJECT' NOT found via plane-projects.sh — verify ticket states manually"
   fi
 else
-  note "Plane state check skipped (no tickets, or infisical/plane-tasks unavailable)"
+  note "Plane state check skipped (infisical/plane-tasks unavailable)"
+fi
+created=$(grep -m1 '^tickets_created:' "$(result_file plane)" 2>/dev/null | cut -d' ' -f2- || true)
+if [[ $TICKETS == none || -z $TICKETS ]]; then
+  if [[ -n ${created:-} && $created != none ]]; then
+    note "no --tickets supplied; worker 3 created primary ticket(s): $created"
+  else
+    note "no --tickets supplied and no tickets_created found in $(result_file plane) — worker 3 skipped required ticket creation, follow up manually"
+  fi
 fi
 
 # --- 7. Summary report ---
 preview=$(sed -n '/^## Teams Draft/,/^## Details/{/^## /d;p}' "$(result_file announce)" 2>/dev/null | head -c 200 || true)
 tickets_updated=$(grep -m1 '^tickets_updated:' "$(result_file plane)" 2>/dev/null | cut -d' ' -f2- || true)
+tickets_created=$(grep -m1 '^tickets_created:' "$(result_file plane)" 2>/dev/null | cut -d' ' -f2- || true)
 
 {
   echo "# ship-and-announce summary: $FIX_ID"
@@ -260,8 +272,12 @@ tickets_updated=$(grep -m1 '^tickets_updated:' "$(result_file plane)" 2>/dev/nul
   echo "- Review and paste the Teams message from $(result_file announce) to the deployments channel — it was NOT auto-sent (hard rule)."
   if [[ -n ${tickets_updated:-} && $tickets_updated != none ]]; then
     echo "- Plane tickets now Done: $tickets_updated"
-  else
-    echo "- Plane tickets: check $(result_file plane) — no updates parsed."
+  fi
+  if [[ -n ${tickets_created:-} && $tickets_created != none ]]; then
+    echo "- Plane tickets created: $tickets_created"
+  fi
+  if [[ ( -z ${tickets_updated:-} || $tickets_updated == none ) && ( -z ${tickets_created:-} || $tickets_created == none ) ]]; then
+    echo "- Plane tickets: check $(result_file plane) — no updates or creations parsed. This fix shipped with NO Plane ticket; that should not happen — file one now."
   fi
   echo "- Rollback plan: $ROLLBACK_PLAN"
 } > "$SUMMARY"

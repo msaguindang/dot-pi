@@ -15,7 +15,7 @@ output artifact).
 |---|--------|-----------|-------------|---------|
 | 1 | Source fix (merge + version bump + push) | `/tmp/ship-source-<fix-id>-task.md` | `/tmp/ship-source-<fix-id>-result.md` | 10 min |
 | 2 | Docs (fleet-gitops + Obsidian + Confluence) | `/tmp/ship-docs-<fix-id>-task.md` | `/tmp/ship-docs-<fix-id>-result.md` | 15 min |
-| 3 | Plane tickets (state + comments + follow-ups) | `/tmp/ship-plane-<fix-id>-task.md` | `/tmp/ship-plane-<fix-id>-result.md` | 10 min |
+| 3 | Plane tickets (create-if-missing + state + comments + follow-ups) | `/tmp/ship-plane-<fix-id>-task.md` | `/tmp/ship-plane-<fix-id>-result.md` | 10 min |
 | 4 | Teams announcement draft | `/tmp/ship-announce-<fix-id>-task.md` | `/tmp/ship-announce-<fix-id>-result.md` | 5 min |
 
 ## HARD RULES
@@ -32,6 +32,11 @@ output artifact).
    cwd-sensitive; `~/.pi/agent/.infisical.json` is the anchor).
 4. **No shared output paths.** Each worker writes only its own result file and
    its own store (see boundaries below).
+5. **A shipped fix always ends with a Plane ticket in `Done`, never with none.**
+   `--tickets` is optional at dispatch time, but worker 3 must treat a missing
+   ticket as "create one," not "skip Plane" — see worker 3 contract below.
+   This is not optional cleanup; it is the fix for a recurring gap where fixes
+   shipped without ever getting a ticket.
 
 ## Knowledge-Store Boundaries
 
@@ -87,6 +92,10 @@ scripts/orchestrate.sh \
   [--skip-validate] [--no-wait] [--resume]
 ```
 
+`[--tickets ...]` is optional, but omitting it does **not** mean "no Plane
+work" — it means worker 3 creates the ticket that should have existed already
+(see hard rule 5 and worker 3's contract below).
+
 1. **Input** — fix-id (slug), fix_branch, versions `{server, ui|null}`,
    fix_summary (1–2 sentences), deploy_date (ISO 8601).
 2. **Pre-dispatch validation** — `pre-dispatch-validate.sh`: fix_branch exists
@@ -132,10 +141,14 @@ skips validation/generation and goes straight to wait → collect → verify →
   `rollback.md` + `verification.md`), Obsidian rationale note (frontmatter
   date, rationale only, pointer links for live state), Confluence release
   notes via `confluence-publisher/scripts/publish.sh`.
-- **Worker 3 — Plane**: state transitions + deployment comment (with commit
-  hash) + follow-up ticket creation, all via `plane-tasks` scripts under
-  `infisical run --` from the plane-tasks directory. No orphaned follow-ups:
-  if creation fails, say so in the result rather than retrying blind.
+- **Worker 3 — Plane**: if `--tickets` was supplied, state transitions +
+  deployment comment (with commit hash) on those tickets; if not, **create the
+  primary ticket first** (`plane-create.sh`, title from fix-id + summary) and
+  then transition/comment on it the same way — a fix with no ticket at all is
+  not an acceptable outcome. Plus follow-up ticket creation. All via
+  `plane-tasks` scripts under `infisical run --` from the plane-tasks
+  directory. No orphaned follow-ups: if creation fails, say so in the result
+  rather than retrying blind.
 - **Worker 4 — Teams draft**: two-part message (exec summary in plain
   language, then technical detail: commit hashes, deploy command with absolute
   URL + BUILD_ID, verification steps, rollback). Format per the
@@ -176,3 +189,7 @@ greps these keys — keep them one per line, `key: value`.
   human executes it.
 - Worker 3 does not yet link follow-up tickets to the parent release ticket.
 - Per-worker timeouts are fixed (10/15/10/5 min).
+- ~~No Plane ticket integration~~ — closed: worker 3 now creates a primary
+  ticket when `--tickets` is omitted instead of skipping Plane (hard rule 5).
+  This was previously a recurring gap where fixes shipped without ever
+  getting ticketed.

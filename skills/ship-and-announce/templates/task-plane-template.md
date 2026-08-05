@@ -5,7 +5,8 @@ Everything you need is in this file. Do not assume any prior conversation.
 
 ## Inputs
 
-- Tickets to close: `{{TICKET_IDS}}` (sequence ids, e.g. PV1-5 → 5)
+- Tickets to close: `{{TICKET_IDS}}` (sequence ids, e.g. PV1-5 → 5), or the
+  literal `none` if this fix was never ticketed
 - Target state: `Done` (from whatever their current state is)
 - Plane project: `{{PLANE_PROJECT}}`
 - Fix branch: `{{FIX_BRANCH}}` (server version {{SERVER_VERSION}})
@@ -40,8 +41,9 @@ only add the deployment comment and create follow-ups, note
 
 ## Scope Fence
 
-- **Mutate only**: the listed Plane tickets (state, one comment) and the
-  listed follow-up ticket creations in project `{{PLANE_PROJECT}}`.
+- **Mutate only**: the listed Plane tickets (state, one comment), the primary
+  ticket created in step 2 when `{{TICKET_IDS}}` is `none`, and the listed
+  follow-up ticket creations — all in project `{{PLANE_PROJECT}}`.
 - **Do not touch** any git repo, Confluence, Obsidian, Teams, or tickets not
   listed above.
 - **Write only one file**: your result file (below).
@@ -49,13 +51,20 @@ only add the deployment comment and create follow-ups, note
 ## Steps
 
 1. Resolve the project id for `{{PLANE_PROJECT}}` via `plane-projects.sh`.
-2. For each ticket in `{{TICKET_IDS}}`: record its current state
+2. **No ticket for this fix is not a valid end state.** If `{{TICKET_IDS}}` is
+   `none`/empty, this fix was never ticketed — do not skip Plane, create the
+   ticket now: `plane-create.sh --project <project_id> --title "{{FIX_ID}}: {{FIX_SUMMARY}}"`.
+   Use the returned sequence id as the primary ticket for steps 3–4 below, and
+   record it in `tickets_created` in the result (not just `tickets_updated`).
+   Otherwise, for each ticket in `{{TICKET_IDS}}`: record its current state
    (`plane-issues.sh`), then transition to `Done` via `plane-update.sh`
-   (subject to the boundary caveat above).
-3. Add a deployment comment to the primary (first-listed) ticket: fix summary,
-   server version {{SERVER_VERSION}}, merge commit hash (or branch name),
-   deploy date {{DEPLOY_DATE}}. If plane-tasks has no comment script, use the
-   Plane MCP tools documented in the plane-tasks SKILL.md — still no raw curl.
+   (subject to the boundary caveat above) — the first-listed ticket is primary.
+3. Add a deployment comment to the primary ticket (first-listed, or the one
+   just created in step 2): fix summary, server version {{SERVER_VERSION}},
+   merge commit hash (or branch name), deploy date {{DEPLOY_DATE}}. If newly
+   created, transition it straight to `Done` too — the work it tracks already
+   shipped. If plane-tasks has no comment script, use the Plane MCP tools
+   documented in the plane-tasks SKILL.md — still no raw curl.
 4. Create each follow-up ticket via `plane-create.sh`. If a creation fails,
    report it in the result — do not retry blindly and do not leave a
    half-created ticket unreported.
@@ -84,10 +93,14 @@ comment_added: yes|no
    failures are recorded per ticket in the result details.
 3. Each listed ticket's state transition is logged (old → new) in the result,
    or the sync-ownership caveat is recorded instead.
-4. Deployment comment added to the primary ticket (or `comment_added: no`
+4. If `{{TICKET_IDS}}` was `none`, a primary ticket was created (not skipped)
+   and its id is in `tickets_created` — "no ticket existed" is never a reason
+   to omit Plane work.
+5. Deployment comment added to the primary ticket (or `comment_added: no`
    with a reason).
-5. Follow-up tickets created with ids recorded; no orphaned/unreported
+6. Follow-up tickets created with ids recorded; no orphaned/unreported
    creation attempts.
-6. No ticket outside `{{TICKET_IDS}}` and the follow-up list was modified.
-7. No secret values appear in the result file.
-8. Result file exists at `{{RESULT_FILE}}` with a parseable `status:` line.
+7. No ticket outside `{{TICKET_IDS}}`, the primary ticket created in step 2,
+   and the follow-up list was modified.
+8. No secret values appear in the result file.
+9. Result file exists at `{{RESULT_FILE}}` with a parseable `status:` line.
