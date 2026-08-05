@@ -105,6 +105,7 @@ export default function (pi: ExtensionAPI): void {
 	let isThinking = false;
 	let messageInterval: ReturnType<typeof setInterval> | undefined;
 	let showcaseInterval: ReturnType<typeof setInterval> | undefined;
+	let showcaseStep = -1;
 	let actionIndex = 0;
 	let thinkingIndex = 0;
 
@@ -121,6 +122,15 @@ export default function (pi: ExtensionAPI): void {
 			}
 			ctx.ui.setWorkingMessage();
 			return;
+		}
+
+		let frame = "";
+		if (showcaseStep >= 0) {
+			const activeIndicator = showcaseStep === 0 ? matrixIndicator : (showcaseStep === 1 ? glitchIndicator : typewriterIndicator);
+			const fCount = activeIndicator.frames.length;
+			if (fCount > 0) {
+				frame = activeIndicator.frames[Math.floor(Date.now() / (activeIndicator.intervalMs || 80)) % fCount]! + " ";
+			}
 		}
 
 		let prefix = "";
@@ -145,14 +155,22 @@ export default function (pi: ExtensionAPI): void {
 			const text = currentFullMsg.substring(0, charIndex);
 			const cursor = charIndex % 2 === 0 ? "█" : "░";
 			ctx.ui.setWorkingMessage(text + cursor);
+			if (showcaseStep >= 0) {
+				ctx.ui.setWidget("cyber-showcase", [frame + text + cursor], { placement: "belowEditor" });
+			}
 		} else {
 			if (pauseTicks === 0) {
 				ctx.ui.setWorkingMessage(currentFullMsg);
+				if (showcaseStep >= 0) {
+					ctx.ui.setWidget("cyber-showcase", [frame + currentFullMsg], { placement: "belowEditor" });
+				}
 			}
 			pauseTicks++;
 			if (pauseTicks >= PAUSE_DURATION_TICKS) {
 				if (activeTools > 0) actionIndex++;
 				else thinkingIndex++;
+			} else if (showcaseStep >= 0) {
+				ctx.ui.setWidget("cyber-showcase", [frame + currentFullMsg], { placement: "belowEditor" });
 			}
 		}
 	}
@@ -184,6 +202,8 @@ export default function (pi: ExtensionAPI): void {
 			if (showcaseInterval) {
 				clearInterval(showcaseInterval);
 				showcaseInterval = undefined;
+				showcaseStep = -1;
+				ctx.ui.setWidget("cyber-showcase", undefined);
 			}
 			if (mode === "matrix") {
 				isThinking = true;
@@ -208,40 +228,46 @@ export default function (pi: ExtensionAPI): void {
 				ctx.ui.setWorkingMessage("Thinking: Typewriter fallback test");
 				ctx.ui.notify("Cyber-loader overridden: Typewriter (Thinking fallback)", "info");
 			} else if (mode === "showcase") {
-				ctx.ui.setWorkingVisible(true);
 				ctx.ui.notify("Starting Cyber-loader showcase...", "info");
 				let step = 0;
 				
 				const runShowcaseStep = () => {
+					showcaseStep = step;
 					if (step === 0) {
 						isThinking = true;
 						activeTools = 0;
-						ctx.ui.setWorkingIndicator(matrixIndicator);
 						startMessageCycle(ctx);
 						ctx.ui.notify("Showcase [1/3]: Matrix Rain (Thinking)", "info");
 					} else if (step === 1) {
 						isThinking = false;
 						activeTools = 1;
-						ctx.ui.setWorkingIndicator(glitchIndicator);
 						startMessageCycle(ctx);
 						ctx.ui.notify("Showcase [2/3]: Glitch (Working)", "info");
 					} else if (step === 2) {
 						isThinking = false;
 						activeTools = 0;
 						stopMessageCycle(ctx);
-						ctx.ui.setWorkingMessage("Thinking: Typewriter fallback test");
-						ctx.ui.setWorkingIndicator(typewriterIndicator);
+						// Manually drive the widget for step 2 since startMessageCycle is stopped
+						let tIndex = 0;
+						const typewriterInterval = setInterval(() => {
+							if (showcaseStep !== 2) {
+								clearInterval(typewriterInterval);
+								return;
+							}
+							const frame = typewriterIndicator.frames[Math.floor(Date.now() / typewriterIndicator.intervalMs) % typewriterIndicator.frames.length];
+							ctx.ui.setWidget("cyber-showcase", [frame + " Thinking: Typewriter fallback test"], { placement: "belowEditor" });
+						}, 60);
 						ctx.ui.notify("Showcase [3/3]: Typewriter", "info");
 					} else {
 						if (showcaseInterval) {
 							clearInterval(showcaseInterval);
 							showcaseInterval = undefined;
+							showcaseStep = -1;
+							ctx.ui.setWidget("cyber-showcase", undefined);
 						}
 						isThinking = false;
 						activeTools = 0;
 						stopMessageCycle(ctx);
-						ctx.ui.setWorkingIndicator(matrixIndicator);
-						ctx.ui.setWorkingVisible(false);
 						ctx.ui.notify("Showcase complete. Restored to Auto mode.", "info");
 					}
 					step++;
@@ -310,6 +336,7 @@ export default function (pi: ExtensionAPI): void {
 		if (showcaseInterval) {
 			clearInterval(showcaseInterval);
 			showcaseInterval = undefined;
+			showcaseStep = -1;
 		}
 	});
 }
