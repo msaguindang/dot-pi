@@ -142,20 +142,17 @@ export default function (pi: ExtensionAPI): void {
 			}
 		}
 
-		let prefix = "";
 		let quote = "";
 		if (activeTools > 0 || subagentsBusy) {
-			prefix = "Working: ";
 			quote = ACTION_QUOTES[actionIndex % ACTION_QUOTES.length]!;
 		} else {
-			prefix = "Thinking: ";
 			quote = THINKING_QUOTES[thinkingIndex % THINKING_QUOTES.length]!;
 		}
 
-		const targetFullMsg = prefix + quote;
+		const targetFullMsg = quote;
 		if (currentFullMsg !== targetFullMsg) {
 			currentFullMsg = targetFullMsg;
-			charIndex = prefix.length;
+			charIndex = 0;
 			pauseTicks = 0;
 		}
 
@@ -220,22 +217,22 @@ export default function (pi: ExtensionAPI): void {
 				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(matrixIndicator);
 				startMessageCycle(ctx);
-				ctx.ui.notify("Cyber-loader overridden: Matrix (Thinking)", "info");
+				ctx.ui.notify("Cyber-loader overridden: Matrix", "info");
 			} else if (mode === "glitch") {
 				isThinking = false;
 				activeTools = 1;
 				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(glitchIndicator);
 				startMessageCycle(ctx);
-				ctx.ui.notify("Cyber-loader overridden: Glitch (Working)", "info");
+				ctx.ui.notify("Cyber-loader overridden: Glitch", "info");
 			} else if (mode === "typewriter") {
 				isThinking = false;
 				activeTools = 0;
 				stopMessageCycle(ctx);
 				ctx.ui.setWorkingVisible(true);
 				ctx.ui.setWorkingIndicator(typewriterIndicator);
-				ctx.ui.setWorkingMessage("Thinking: Typewriter fallback test");
-				ctx.ui.notify("Cyber-loader overridden: Typewriter (Thinking fallback)", "info");
+				ctx.ui.setWorkingMessage("Transmitting fallback test");
+				ctx.ui.notify("Cyber-loader overridden: Typewriter (fallback)", "info");
 			} else if (mode === "showcase") {
 				ctx.ui.notify("Starting Cyber-loader showcase...", "info");
 				let step = 0;
@@ -246,12 +243,12 @@ export default function (pi: ExtensionAPI): void {
 						isThinking = true;
 						activeTools = 0;
 						startMessageCycle(ctx);
-						ctx.ui.notify("Showcase [1/3]: Matrix Rain (Thinking)", "info");
+						ctx.ui.notify("Showcase [1/3]: Matrix Rain", "info");
 					} else if (step === 1) {
 						isThinking = false;
 						activeTools = 1;
 						startMessageCycle(ctx);
-						ctx.ui.notify("Showcase [2/3]: Glitch (Working)", "info");
+						ctx.ui.notify("Showcase [2/3]: Glitch", "info");
 					} else if (step === 2) {
 						isThinking = false;
 						activeTools = 0;
@@ -264,7 +261,7 @@ export default function (pi: ExtensionAPI): void {
 								return;
 							}
 							const frame = typewriterIndicator.frames[Math.floor(Date.now() / typewriterIndicator.intervalMs) % typewriterIndicator.frames.length];
-							ctx.ui.setWidget("cyber-showcase", [frame + " Thinking: Typewriter fallback test"], { placement: "belowEditor" });
+							ctx.ui.setWidget("cyber-showcase", [frame + " Transmitting fallback test"], { placement: "belowEditor" });
 						}, 60);
 						ctx.ui.notify("Showcase [3/3]: Typewriter", "info");
 					} else {
