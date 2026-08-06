@@ -110,6 +110,8 @@ export default function (pi: ExtensionAPI): void {
 
 	let activeTools = 0;
 	let isThinking = false;
+	let subagentsBusy = false;
+	let activeCtx: ExtensionContext | undefined;
 	let messageInterval: ReturnType<typeof setInterval> | undefined;
 	let showcaseInterval: ReturnType<typeof setInterval> | undefined;
 	let showcaseStep = -1;
@@ -122,7 +124,7 @@ export default function (pi: ExtensionAPI): void {
 	const PAUSE_DURATION_TICKS = 25; // 25 * 60ms = 1500ms
 
 	function tickMessage(ctx: ExtensionContext): void {
-		if (activeTools === 0 && !isThinking) {
+		if (activeTools === 0 && !isThinking && !subagentsBusy) {
 			if (messageInterval) {
 				clearInterval(messageInterval);
 				messageInterval = undefined;
@@ -142,7 +144,7 @@ export default function (pi: ExtensionAPI): void {
 
 		let prefix = "";
 		let quote = "";
-		if (activeTools > 0) {
+		if (activeTools > 0 || subagentsBusy) {
 			prefix = "Working: ";
 			quote = ACTION_QUOTES[actionIndex % ACTION_QUOTES.length]!;
 		} else {
@@ -174,7 +176,7 @@ export default function (pi: ExtensionAPI): void {
 			}
 			pauseTicks++;
 			if (pauseTicks >= PAUSE_DURATION_TICKS) {
-				if (activeTools > 0) actionIndex++;
+				if (activeTools > 0 || subagentsBusy) actionIndex++;
 				else thinkingIndex++;
 			} else if (showcaseStep >= 0) {
 				ctx.ui.setWidget("cyber-showcase", [frame + currentFullMsg], { placement: "belowEditor" });
@@ -193,7 +195,7 @@ export default function (pi: ExtensionAPI): void {
 	}
 
 	function stopMessageCycle(ctx: ExtensionContext): void {
-		if (activeTools === 0 && !isThinking) {
+		if (activeTools === 0 && !isThinking && !subagentsBusy) {
 			if (messageInterval) {
 				clearInterval(messageInterval);
 				messageInterval = undefined;
@@ -296,6 +298,7 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", (_event: any, ctx: ExtensionContext): void => {
+		activeCtx = ctx;
 		activeTools = 0;
 		isThinking = false;
 		ctx.ui.setWorkingIndicator(matrixIndicator);
@@ -307,31 +310,59 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_start", (_event: any, ctx: ExtensionContext): void => {
+		activeCtx = ctx;
 		isThinking = true;
-		if (activeTools === 0) {
+		if (activeTools === 0 && !subagentsBusy) {
 			ctx.ui.setWorkingIndicator(matrixIndicator);
 		}
 		startMessageCycle(ctx);
 	});
 
 	pi.on("agent_end", (_event: any, ctx: ExtensionContext): void => {
+		activeCtx = ctx;
 		isThinking = false;
 		stopMessageCycle(ctx);
 	});
 
 	pi.on("tool_execution_start", (_event: any, ctx: ExtensionContext): void => {
+		activeCtx = ctx;
 		activeTools++;
 		ctx.ui.setWorkingIndicator(glitchIndicator);
 		startMessageCycle(ctx);
 	});
 
 	pi.on("tool_execution_end", (_event: any, ctx: ExtensionContext): void => {
+		activeCtx = ctx;
 		activeTools--;
-		if (activeTools <= 0) {
+		if (activeTools <= 0 && !subagentsBusy) {
 			activeTools = 0;
 			ctx.ui.setWorkingIndicator(matrixIndicator);
 			startMessageCycle(ctx);
 			stopMessageCycle(ctx);
+		}
+	});
+
+	// Listen for pi-subagents emitting "herdr:busy" on the internal pi.events bus
+	(pi as any).events?.on("herdr:busy", (payload: any) => {
+		if (payload && typeof payload.active === "boolean") {
+			subagentsBusy = payload.active;
+			if (activeCtx) {
+				if (subagentsBusy) {
+					activeCtx.ui.setWorkingVisible(true);
+					activeCtx.ui.setWorkingIndicator(glitchIndicator);
+					startMessageCycle(activeCtx);
+				} else {
+					if (activeTools <= 0) {
+						activeCtx.ui.setWorkingIndicator(matrixIndicator);
+						if (!isThinking) {
+							stopMessageCycle(activeCtx);
+							activeCtx.ui.setWorkingVisible(false);
+						} else {
+							startMessageCycle(activeCtx);
+						}
+					}
+				}
+			}
 		}
 	});
 
