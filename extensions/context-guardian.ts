@@ -357,6 +357,56 @@
  * only from the first compaction onward (suppressed at 0) — a fresh session
  * has nothing to show yet, and an always-present "♻️ 0" would just be bar
  * clutter with no signal.
+ *
+ * 2026-08-11 addendum #2 — badge resets to 0 on reload, the exact case it
+ * exists to flag: compactionCount is module-scope (`let compactionCount = 0`
+ * below), and extensions get reloaded live when their files change (confirmed
+ * directly today — editing this file mid-session updated the TUI without a
+ * full restart). A reload re-runs this module's top level, resetting
+ * compactionCount back to 0 — so a long-running session that gets reloaded
+ * mid-flight loses its true count until the next NEW compaction, undercounting
+ * a long session exactly when the badge matters most.
+ *
+ * session_start DOES fire on a live reload — confirmed two ways: (1)
+ * types.d.ts SessionStartEvent.reason (~line 418 of the installed package's
+ * dist/core/extensions/types.d.ts) is `"startup" | "reload" | "new" |
+ * "resume" | "fork"`, "reload" included; (2) dist/core/agent-session.js,
+ * AgentSession.reload() (~line 2052), literally emits
+ * `this._extensionRunner.emit({ type: "session_start", reason: "reload" })`
+ * (~line 2072) as part of the same reload path that just re-ran this module.
+ * So a new session_start handler, seeding compactionCount there, actually
+ * fires on the reload this bug is about.
+ *
+ * Seeding source — ctx.sessionManager, not a hand-resolved file path:
+ * ExtensionContext.sessionManager (types.d.ts ~line 219) is typed
+ * ReadonlySessionManager, a Pick of SessionManager (session-manager.d.ts
+ * ~line 140) that includes getEntries() and getSessionFile(). Deliberately
+ * used getEntries() directly instead of reading getSessionFile()'s path off
+ * disk: traced AgentSession.reload() (agent-session.js ~line 2037,
+ * `new ExtensionRunner(..., this.sessionManager, ...)`) — reload() passes the
+ * SAME live `this.sessionManager` instance into the new ExtensionRunner, it is
+ * never recreated on reload. That sidesteps the "which file is actually THIS
+ * session" ambiguity a disk-based mtime/glob lookup would have (multiple
+ * sessions can be open at once) entirely — there's no file path resolution
+ * step at all, just an in-memory, already-known-current handle. getEntries()
+ * (session-manager.d.ts ~line 281, "Get all session entries... The session is
+ * append-only") returns every entry ever appended this session, including
+ * CompactionEntry ones — confirmed appendCompaction() (session-manager.js
+ * ~line 803) constructs `{ type: "compaction", ... }` and stores it via the
+ * same _appendEntry() every other entry type goes through, so it's included
+ * in getEntries()'s result like any other entry. Filtering that array for
+ * `type === "compaction"` and taking .length is the seed count.
+ *
+ * Session_start's own reason field is not otherwise used: "new"/"resume"/
+ * "fork" all correctly have zero or their own already-correct prior entries
+ * (getEntries() reflects whichever session is actually loaded regardless of
+ * reason), and "startup" (first-ever load) also just reads real entries (0
+ * for a fresh session — badge suppression at 0 is unchanged, see the addendum
+ * above). So the handler doesn't branch on reason at all; it re-derives from
+ * ground truth every time it fires, which is correct for every reason
+ * including repeated reloads in one session (each reload's larger transcript
+ * naturally produces a larger, correct count — no double-counting, since it's
+ * a recomputed length, not an increment).
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -389,10 +439,13 @@ function readConfig(): GuardianConfig {
 
 const config = readConfig();
 
-// Module-scope, not per-session-start-reset: a running total of every
-// compaction that has landed in this process's lifetime. See the 2026-08-11
-// header addendum above for why it counts all compactions, not just this
-// extension's own trigger.
+// Module-scope: a running total of every compaction that has landed in THIS
+// SESSION. See the 2026-08-11 header addendum above for why it counts all
+// compactions, not just this extension's own trigger. Starts at 0 here for a
+// truly fresh module load; the session_start handler below re-seeds it from
+// the session's own transcript on every fire (including "reload"), so this
+// initial value only ever matters for the brief window before that handler
+// first runs.
 let compactionCount = 0;
 
 export default function (pi: ExtensionAPI): void {
@@ -440,6 +493,26 @@ export default function (pi: ExtensionAPI): void {
 	// executeToolCallsSequential/Parallel in agent-loop.js), so it's the only
 	// hook guaranteed to pair 1:1 with tool_call and never leak an entry.
 	const pendingToolCallIds = new Set<string>();
+
+	// Shared with the session_start seeding handler below (2026-08-11 addendum
+	// #2) so a reload that re-seeds a nonzero count re-renders the badge
+	// immediately, instead of leaving it stale/absent until the next new
+	// compaction. Suppressed at 0 either way — see the original 2026-08-11
+	// addendum for why an always-present "♻️ 0" is just clutter.
+	const renderCompactionBadge = (ctx: ExtensionContext) => {
+		if (!ctx.hasUI || compactionCount === 0) return;
+		try {
+			const theme = ctx.ui.theme;
+			const text = theme?.fg
+				? theme.fg("muted", "compactions: ") + theme.fg("text", `♻️ ${compactionCount}`)
+				: `♻️ compactions: ${compactionCount}`;
+			ctx.ui.setStatus("compaction-count", text);
+		} catch {
+			// ctx.ui.theme can throw before initTheme (same guard the ponytail
+			// extension's syncStatus uses) — the badge just skips this update
+			// rather than crash the compaction flow (or session start) over it.
+		}
+	};
 
 	const triggerCompaction = (ctx: ExtensionContext) => {
 		// Primary guard (see header comment for the trace): check BEFORE calling
@@ -536,6 +609,22 @@ export default function (pi: ExtensionAPI): void {
 		}
 	};
 
+	pi.on("session_start", (_event, ctx) => {
+		// Re-seed compactionCount from this session's own transcript on every
+		// fire — including reason: "reload", which is exactly the case the
+		// 2026-08-11 addendum #2 (header) is fixing. See that addendum for the
+		// full trace on why ctx.sessionManager.getEntries() (not a hand-resolved
+		// file path) is the right source, and why session_start genuinely fires
+		// on a live extension reload. Fails soft to 0 — never let a seeding
+		// problem block session start.
+		try {
+			compactionCount = ctx.sessionManager.getEntries().filter((entry) => entry.type === "compaction").length;
+		} catch {
+			compactionCount = 0;
+		}
+		renderCompactionBadge(ctx);
+	});
+
 	pi.on("agent_start", () => {
 		runActive = true;
 	});
@@ -593,19 +682,7 @@ export default function (pi: ExtensionAPI): void {
 		// gates deliberately: those decide whether to auto-continue, not
 		// whether a compaction happened, and this counter tracks the latter.
 		compactionCount += 1;
-		if (ctx.hasUI) {
-			try {
-				const theme = ctx.ui.theme;
-				const text = theme?.fg
-					? theme.fg("muted", "compactions: ") + theme.fg("text", `♻️ ${compactionCount}`)
-					: `♻️ compactions: ${compactionCount}`;
-				ctx.ui.setStatus("compaction-count", text);
-			} catch {
-				// ctx.ui.theme can throw before initTheme (same guard the
-				// ponytail extension's syncStatus uses) — the badge just skips
-				// this update rather than crash the compaction flow over it.
-			}
-		}
+		renderCompactionBadge(ctx);
 
 		// Disarm unconditionally, before any gate below: ANY compaction that
 		// actually lands — ours, the harness's own reactive/threshold or
