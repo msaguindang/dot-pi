@@ -281,7 +281,7 @@ cmd_init() {
     fi
 
     local prior_build_id="unknown" prior_yaml="$prior_release_dir/release.yaml"
-    [[ -f "$prior_yaml" ]] && prior_build_id="$(grep 'build_id:' "$prior_yaml" | head -1 | awk '{print $2}')"
+    [[ -f "$prior_yaml" ]] && prior_build_id="$(grep -E '^\s*build_id:' "$prior_yaml" | head -1 | awk '{print $2}')"
 
     # --- create release directory ----------------------------------------------
     local DATE RELEASE_ID RELEASE_DIR
@@ -365,7 +365,7 @@ cmd_publish() {
     local RELEASE_ID; RELEASE_ID="$(basename "$RELEASE_DIR")"
 
     local BUILD_ID
-    BUILD_ID="$(grep 'build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
+    BUILD_ID="$(grep -E '^\s*build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
     [[ -n "$BUILD_ID" ]] || err "no build_id in $RELEASE_DIR/release.yaml"
 
     # 1. bash -n every script (also re-checked by the validator)
