@@ -213,6 +213,14 @@ To disable an extension, prefix its entry with `-` in `settings.json`:
 
 ---
 
+## Utilities
+
+| Script | Purpose |
+|---|---|
+| `inf-run` (`~/.local/bin/inf-run`) | `inf-run <skill-name> <command...>` — runs a command with that skill's Infisical secrets injected, regardless of caller cwd. Skills don't carry their own `.infisical.json`; it walks up from `skills/<name>/` to the shared config at `~/.pi/agent/.infisical.json` and passes it via `infisical run --project-config-dir`, so no `cd` juggling is needed. Noise (update-available tip, `INF` injection log) is suppressed via `--silent --log-level warn` rather than output-grepping. |
+
+---
+
 ## Skills
 
 Invoke with `/skill-name` in a pi session.
