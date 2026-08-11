@@ -12,7 +12,8 @@ Provides tools for interacting with Plane API to manage tasks for NTV projects.
 2. Ensure `curl` and `jq` are installed.
 
 ## Usage
-- List issues: `/skill:plane-tasks scripts/plane-issues.sh --project <project_id>`
+- List my active issues: `/skill:plane-tasks scripts/plane-issues.sh --project <project_id>`
+- List ALL work items in a project, any assignee/state, with resolved state names (not UUIDs): `/skill:plane-tasks scripts/plane-list.sh --project <project_id> [--output json|table]`
 - Update task: `/skill:plane-tasks scripts/plane-update.sh <issue_sequence_id> <project_id> <new_state_name>`
 
 ## MCP Configuration (for Claude Desktop / pi)
