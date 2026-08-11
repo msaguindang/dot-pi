@@ -24,8 +24,8 @@ INVENTORY_FILE="${RPI_INVENTORY:-$script_dir/../device-inventory.json}"
 # Device paths — marked ASSUMED in the handoff spec.
 # TODO: confirm these against a live device; override via env if they differ.
 DEPLOY_LOG_DIR="${RPI_DEPLOY_LOG_DIR:-/tmp/ntv-deploy-logs}"
-MANIFEST="${RPI_MANIFEST:-/home/pi/deployment-manifest.json}"
-SERVER_PKG="${RPI_SERVER_PKG:-/home/pi/player-server/package.json}"
+MANIFEST="${RPI_MANIFEST:-/tmp/ntv-deploy-logs/deployment-manifest.json}"
+SERVER_PKG="${RPI_SERVER_PKG:-/home/pi/n-compasstv/player-server/package.json}"
 UI_PKG="${RPI_UI_PKG:-/var/www/html/ui/package.json}"
 
 log_info() { echo -e "\033[1;34m[INFO]\033[0m $*"; }
