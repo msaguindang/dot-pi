@@ -1,6 +1,6 @@
 ---
 name: ntv-release
-description: Cut an immutable-artifact release of player-server and/or player-ui — version bump, prod builds, fresh UUID BUILD_ID, S3 upload to secure-rc/<BUILD_ID>/, fleet-gitops release record (release.yaml + rollback.md + verification.md), and 4-stage validation. Use when asked to "cut a release", "ntv-release", "release player-server X.Y.Z", "release player-ui A.B.C", "publish a release bundle", or to prepare/validate a fleet-gitops release record.
+description: Cut an immutable-artifact release of player-server and/or player-ui — version bump, prod builds, fresh UUID BUILD_ID, S3 upload to secure-rc/<BUILD_ID>/, fleet-gitops release record (release.yaml + rollback.md + verification.md), and 5-stage validation. Use when asked to "cut a release", "ntv-release", "release player-server X.Y.Z", "release player-ui A.B.C", "publish a release bundle", or to prepare/validate a fleet-gitops release record.
 ---
 
 # ntv-release
@@ -39,16 +39,16 @@ self-detach via re-download, SIGHUP trap, idempotency gate, crontab window,
   reopens scope.
 - **S3 round-trip verify is mandatory, not optional.** After every upload, verify the
   live object matches the recorded checksum — not just that a file with that name
-  exists. `release.sh publish` step 5 + `validate-release.sh` stage 5 run `aws s3 ls`
-  for filename presence, and stage 5b (`scripts/validate-release.sh`, "Stage 5b: S3
+  exists. `release.sh publish` step 5 + `validate-release.sh` stage 6 run `aws s3 ls`
+  for filename presence, and stage 6b (`scripts/validate-release.sh`, "Stage 6b: S3
   content verification") re-derives/compares content hashes against the uploaded
   bytes: `aws s3api head-object` ETag compared to the local file's MD5 for ordinary
   (non-multipart) uploads — current artifact sizes are well under the AWS CLI's 8MiB
   multipart threshold, so this is the normal path — with an automatic fallback to a
   streamed `aws s3 cp <s3://...> - | sha256sum` compared against `checksums.sha256`
   for any object whose ETag indicates a multipart upload (ETag containing `-`). A
-  filename-presence PASS alone is no longer sufficient by construction: stage 5b runs
-  immediately after stage 5 and fails the whole validation (non-zero exit, explicit
+  filename-presence PASS alone is no longer sufficient by construction: stage 6b runs
+  immediately after stage 6 and fails the whole validation (non-zero exit, explicit
   `[FAIL] CONTENT MISMATCH` line) on any content mismatch.
 - **Subagent output hygiene.** Subagents dispatched during a release ritual return
   verdict/summary only. Full logs, command output, or device output goes to an artifact
@@ -162,8 +162,8 @@ been merged into `next`. The target package version must be committed on the fix
     commit `feat(gitops): add release record for <RELEASE_ID>`; push both remotes.
     *(dir+records by `init`, commit+push by `publish`)*
 18. **Validation** — 4 local stages (files present, `sha256sum --check`, YAML parse,
-    `bash -n` all scripts) via the fleet-gitops validator, plus stage 5 S3 presence and
-    stage 5b S3 content verification.
+    `bash -n` all scripts) via the fleet-gitops validator, plus stage 6 S3 presence and
+    stage 6b S3 content verification.
     *(automated by `validate-release.sh`)*
 19. **Review** — human verifies: release.yaml fields populated, `aws s3 ls <BUILD_ID>/`
     complete, checksums pass, gitops commit present on both remotes.
@@ -221,9 +221,9 @@ records) and push fleet-gitops to both `origin` and `forgejo`.
 ~/.pi/agent/skills/ntv-release/scripts/validate-release.sh <release-dir | BUILD_ID> [--local-only]
 ```
 
-Exit 0 = PASS. Evidence log: `/tmp/validate-<BUILD_ID>.log`. Delegates stages 1–4 to the
+Exit 0 = PASS. Evidence log: `/tmp/validate-<BUILD_ID>.log`. Delegates stages 1–5 to the
 source-of-truth validator `fleet-gitops/player-apps/tools/validate-release.sh`, adds
-stage 5 (S3 presence of every checksummed file) and stage 5b (content hash of every
+stage 6 (S3 presence of every checksummed file) and stage 6b (content hash of every
 checksummed file against the live S3 object — ETag/MD5, or streamed sha256 for
 multipart uploads). Note: historical releases fail checksum
 validation after their zips are cleaned from the dir — that is expected; validate while
@@ -253,8 +253,8 @@ bundle's BUILD_ID.
 ## Bundled resources
 
 - `scripts/release.sh` — orchestrator: `init` (ritual 4–5, 7-scaffold) + `publish` (6, 7-commit)
-- `scripts/validate-release.sh` — ritual 8: stages 1–4 via fleet-gitops validator + stage 5 S3
-  presence + stage 5b S3 content verification (ETag/MD5, multipart-fallback streamed sha256)
+- `scripts/validate-release.sh` — ritual 8: stages 1–5 via fleet-gitops validator + stage 6 S3
+  presence + stage 6b S3 content verification (ETag/MD5, multipart-fallback streamed sha256)
 - `scripts/gen-checksums.sh` — `checksums.sha256` over `*.zip` + `*.sh` with self-check
 - `templates/release-yaml-template.yaml` — matches the live fleet-gitops release.yaml shape
 - `templates/rollback-md-template.md`, `templates/verification-md-template.md`

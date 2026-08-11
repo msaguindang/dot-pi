@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# validate-release.sh — 4-stage release validation + S3 presence check.
+# validate-release.sh — 5-stage release validation + S3 presence/content check.
 #
-# Stages 1–4 (files present, sha256sum --check, YAML parse, bash -n) are
-# delegated to fleet-gitops' own validator — the source of truth:
+# Stages 1–5 (files present, sha256sum --check, YAML parse, bash -n, deploy-script
+# lint — the lint stage was added 2026-08-11) are delegated to fleet-gitops' own
+# validator — the source of truth:
 #   <gitops>/player-apps/tools/validate-release.sh
-# Stage 5 (this script) verifies every checksummed file is present in
+# Stage 6 (this script) verifies every checksummed file is present in
 # s3://ncompasstv-prod-player-apps/secure-rc/<BUILD_ID>/ via `aws s3 ls`, then
 # re-derives/compares content hashes against the uploaded bytes (not just
 # filename presence) via `aws s3api head-object` ETag-vs-local-MD5, falling
@@ -64,8 +65,8 @@ echo ""
 
 FAIL=0
 
-# --- Stages 1–4: fleet-gitops validator (files, checksums, yaml, bash -n) ---
-echo "--- Stages 1-4: fleet-gitops validate-release.sh ---"
+# --- Stages 1–5: fleet-gitops validator (files, checksums, yaml, bash -n, lint) ---
+echo "--- Stages 1-5: fleet-gitops validate-release.sh ---"
 if bash "$UPSTREAM_VALIDATOR" "$RELEASE_DIR"; then
     echo "[PASS] local validation (files/checksums/yaml/bash -n)"
 else
@@ -74,11 +75,11 @@ else
 fi
 echo ""
 
-# --- Stage 5: S3 presence ---
+# --- Stage 6: S3 presence ---
 if [[ "$LOCAL_ONLY" == "true" ]]; then
-    echo "--- Stage 5: S3 presence — SKIPPED (--local-only) ---"
+    echo "--- Stage 6: S3 presence — SKIPPED (--local-only) ---"
 else
-    echo "--- Stage 5: S3 presence (aws s3 ls) ---"
+    echo "--- Stage 6: S3 presence (aws s3 ls) ---"
     if ! command -v aws >/dev/null 2>&1; then
         echo "[FAIL] aws CLI not found — cannot verify S3."
         FAIL=1
@@ -100,8 +101,8 @@ else
 fi
 echo ""
 
-# --- Stage 5b: S3 content verification (uploaded bytes vs checksums.sha256) -
-# Presence (stage 5) only proves a same-named object exists — not that its
+# --- Stage 6b: S3 content verification (uploaded bytes vs checksums.sha256) -
+# Presence (stage 6) only proves a same-named object exists — not that its
 # bytes match what was checksummed locally. For each checksummed artifact,
 # pull the live object's ETag via head-object. A plain (non-multipart) S3
 # upload's ETag is the object's raw MD5 hex, so it's compared against a local
@@ -113,11 +114,11 @@ echo ""
 # and handled: fall back to a streamed `aws s3 cp - | sha256sum` compared
 # against the recorded sha256, since a multipart ETag is not a usable hash.
 if [[ "$LOCAL_ONLY" == "true" ]]; then
-    echo "--- Stage 5b: S3 content verification — SKIPPED (--local-only) ---"
+    echo "--- Stage 6b: S3 content verification — SKIPPED (--local-only) ---"
 elif ! command -v aws >/dev/null 2>&1; then
-    : # already reported as [FAIL] in stage 5 above
+    : # already reported as [FAIL] in stage 6 above
 else
-    echo "--- Stage 5b: S3 content verification (head-object ETag / streamed sha256 fallback) ---"
+    echo "--- Stage 6b: S3 content verification (head-object ETag / streamed sha256 fallback) ---"
     while IFS=$'\t' read -r sha256 fname; do
         [[ -n "$fname" ]] || continue
         key="secure-rc/${BUILD_ID}/${fname}"
