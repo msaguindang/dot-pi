@@ -57,6 +57,42 @@ Exit codes:
 - `1`: Suspicious phrases found; prompt the user for confirmation.
 - `2`: Invalid usage.
 
+If the input is a file, the script also checks its YAML frontmatter for an
+`output.path` (or `output.artifact_path`) field and warns — non-fatally — if
+it's missing, since a task with no declared output location can lose its
+artifact if the subagent's cwd differs from expected.
+
+### Batch mode — output path collision detection
+
+When dispatching a **parallel batch** of task files, validate them together
+so two tasks can't silently declare the same output artifact path (last
+writer wins, first task's output is lost with no warning):
+
+```bash
+~/.pi/agent/skills/delegation-validator/scripts/validate.sh --batch task-1.md task-2.md task-3.md
+```
+
+For each task file, it reads the YAML frontmatter's `output.path` /
+`output.artifact_path` (flat `output.path: ...` or nested `output:\n  path: ...`),
+resolves it to an absolute path (`~` expanded; relative paths resolved
+against the task file's own directory), and fails if any two files resolve
+to the same path — printing every task file + task id that collided.
+A `${VAR}`-style path the script can't resolve is flagged as a warning
+instead of silently treated as a collision candidate. A task file with no
+`output.path` at all is warned (not failed) just like single-file mode.
+
+```
+ERROR: Output path collision detected!
+  Task PV1-4 (task-plane-update-1.md): /tmp/plane-response.json
+  Task PV1-5 (task-plane-update-2.md): /tmp/plane-response.json
+Recommendation: change all but one task's output.path to a unique file.
+```
+
+Exit codes (batch mode):
+- `0`: all declared output paths are unique (missing/unresolvable paths only warn).
+- `1`: a collision was detected, or a task file couldn't be read.
+- `2`: invalid usage (`--batch` given with no task files).
+
 ## Script: `scripts/validate_handoff.sh`
 
 Lints a handoff document (markdown file) against `~/.agents/standards/handoff-doc-standard.md`. Use before treating any handoff doc as ready for takeover, or after writing one.
