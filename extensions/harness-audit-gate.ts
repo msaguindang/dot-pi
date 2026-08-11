@@ -7,8 +7,8 @@
  * "committed-but-not-live" is caught before an expensive session, not after.
  *
  * Non-blocking by design: a failing audit screams via ctx.ui.notify("error")
- * and pins a persistent status badge, but NEVER prevents the session from
- * starting. Note: the gate fires at session_start only — drift introduced
+ * but NEVER prevents the session from starting. Note: the gate fires at
+ * session_start only — drift introduced
  * mid-session (e.g. /model persisting to settings.json) surfaces on the NEXT
  * session, not immediately. Best-effort: a missing/erroring script logs one warning and
  * continues — the audit must never crash the session.
@@ -23,7 +23,6 @@ import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-const STATUS_KEY = "harness-audit";
 const AUDIT_TIMEOUT_MS = 15_000;
 
 const isSubagent = process.env.PI_SUBAGENT_CHILD === "1";
@@ -103,16 +102,11 @@ export default function (pi: ExtensionAPI): void {
 			const result = runAudit(harnessDir, scriptPath);
 
 			if (result.ok) {
-				// Quiet confirmation — a small persistent badge, no notification spam.
-				ctx.ui.setStatus(STATUS_KEY, " harness ok");
 				return;
 			}
 
-			// LOUD but NON-BLOCKING: pin a persistent failure badge AND fire a
-			// warning notification carrying the exact failing invariant lines.
-			const count = result.failLines.length;
-			ctx.ui.setStatus(STATUS_KEY, `󰀪 harness DRIFT: ${count} invariant${count === 1 ? "" : "s"}`);
-
+			// LOUD: fire a warning notification carrying the exact failing
+			// invariant lines.
 			const body = result.failLines.length > 0
 				? result.failLines.join("\n")
 				: `audit exited ${result.exitCode} (no FAIL lines parsed)`;

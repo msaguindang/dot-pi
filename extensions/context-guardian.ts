@@ -337,6 +337,26 @@
  * of reason or who triggered it, satisfies the need the flag represents.
  * Harness-internal compaction now also disarms the guardian's pending
  * trigger, same as our own.
+ *
+ * 2026-08-11 addendum — compaction-count status badge: mined evidence from a
+ * prior session showed 35 compactions correlated with that session becoming
+ * effectively unrecoverable — the agent kept losing the thread and the
+ * session needed a fresh start via /skill:session-distiller +
+ * /skill:takeover. An automated threshold-notification for this was
+ * considered and deliberately NOT built — "how many is too many" is a
+ * judgment call that depends on the task, not a constant worth hardcoding.
+ * Instead, this adds a persistent, glanceable ♻️ count to the status bar (same
+ * ctx.ui.setStatus mechanism the other badges in this harness use) so the
+ * user can notice the trend themselves and act on it before things degrade.
+ * The counter increments for EVERY compaction that actually lands this
+ * session — this extension's own proactive trigger, the harness's own
+ * reactive/threshold/overflow compaction, and any manual /compact — so the
+ * increment sits at the very top of the session_compact handler below,
+ * before the willRetry/ourCompactionInFlight-or-runActive gates that only
+ * decide whether to auto-continue, not whether a compaction happened. Shown
+ * only from the first compaction onward (suppressed at 0) — a fresh session
+ * has nothing to show yet, and an always-present "♻️ 0" would just be bar
+ * clutter with no signal.
  */
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
@@ -368,6 +388,12 @@ function readConfig(): GuardianConfig {
 }
 
 const config = readConfig();
+
+// Module-scope, not per-session-start-reset: a running total of every
+// compaction that has landed in this process's lifetime. See the 2026-08-11
+// header addendum above for why it counts all compactions, not just this
+// extension's own trigger.
+let compactionCount = 0;
 
 export default function (pi: ExtensionAPI): void {
 	// Edge-detect the threshold crossing (same idiom as the harness's own
@@ -562,6 +588,25 @@ export default function (pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_compact", (event, ctx) => {
+		// Count every landed compaction, before any gate below — see the
+		// 2026-08-11 header addendum. Sits ahead of the willRetry/runActive
+		// gates deliberately: those decide whether to auto-continue, not
+		// whether a compaction happened, and this counter tracks the latter.
+		compactionCount += 1;
+		if (ctx.hasUI) {
+			try {
+				const theme = ctx.ui.theme;
+				const text = theme?.fg
+					? theme.fg("muted", "compactions: ") + theme.fg("text", `♻️ ${compactionCount}`)
+					: `♻️ compactions: ${compactionCount}`;
+				ctx.ui.setStatus("compaction-count", text);
+			} catch {
+				// ctx.ui.theme can throw before initTheme (same guard the
+				// ponytail extension's syncStatus uses) — the badge just skips
+				// this update rather than crash the compaction flow over it.
+			}
+		}
+
 		// Disarm unconditionally, before any gate below: ANY compaction that
 		// actually lands — ours, the harness's own reactive/threshold or
 		// overflow compaction, manual /compact, another extension's — means

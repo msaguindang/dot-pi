@@ -75,14 +75,8 @@ function checkStaleness(): { stale: string[]; fresh: string[] } {
 }
 
 export default function (pi: ExtensionAPI) {
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async () => {
 		snapshotExtensions();
-		if (ctx.hasUI && extensionStates.length > 0) {
-			ctx.ui.setStatus(
-				"ext-watcher",
-				`󰈈 ${extensionStates.length} ext watched`
-			);
-		}
 	});
 
 	pi.on("after_tool_use", async (event, ctx) => {
@@ -94,7 +88,6 @@ export default function (pi: ExtensionAPI) {
 		if (!filePath.includes(path.join(".pi", "agent", "extensions"))) return;
 
 		staleExtensions.add(base);
-		ctx.ui.setStatus("ext-watcher", `󰀪 ${staleExtensions.size} stale ext`);
 		ctx.ui.notify(
 			`Extension modified: ${base} — restart pi session to reload changes`,
 			"warning"
