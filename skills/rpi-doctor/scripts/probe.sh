@@ -132,11 +132,15 @@ latest_log=$(sec 2 | awk 'NR==2 {print $NF}')
 
 offline=$(sec 1 | grep -cE 'stopped|errored' || true)
 err_deploy=$(sec 3 | grep -ciE "$ERR_RE" || true)
-err_pm2=$(sec 7 | grep -ciE "$ERR_RE" || true)
+# player-chromium's GPU/DBus/extension-manifest errors are known-benign,
+# always-present headless-Chromium noise that does not affect playback —
+# exclude its log lines from the error tally/health verdict. Still shown
+# in the raw section 6 log tail for reference, just not counted here.
+err_pm2=$(sec 7 | grep -v '|player-c' | grep -ciE "$ERR_RE" || true)
 errors=$((err_deploy + err_pm2))
 cron_count=$(sec 8 | grep -cE '^[^#[:space:]].*[^[:space:]]' || true)
 [[ "$(rc 8)" -eq 0 ]] || cron_count=0
-latest_err=$( { sec 3; sec 7; } | grep -iE "$ERR_RE" | tail -1 || true)
+latest_err=$( { sec 3; sec 7 | grep -v '|player-c'; } | grep -iE "$ERR_RE" | tail -1 || true)
 
 if (( errors >= 3 || offline >= 2 )); then
     HEALTH="CRITICAL"; RECO="investigate process restart / check logs immediately"
