@@ -51,14 +51,33 @@ SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 err()  { echo "ERROR: $*" >&2; exit 1; }
 info() { echo "[ntv-release] $*"; }
 
-validate_release_artifacts() { # <server-zip> <ui-zip> <ui-version>
-    local server_zip="$1" ui_zip="$2" ui_version="$3"
+validate_release_artifacts() { # <server-zip> <ui-zip> <ui-version> <server-version>
+    local server_zip="$1" ui_zip="$2" ui_version="$3" server_version="$4"
     local expected_ui_index="player-ui-${ui_version}/index.html"
+    local server_prefix="player-server-${server_version}"
+    # Required members, not a raw byte-size heuristic — src/public/** is
+    # gitignored runtime data (downloaded assets, screenshots) that a clean
+    # checkout never has at build time, so total zip size varies legitimately
+    # release to release and is not a signal of a broken build.
+    local required_server_members=(
+        "${server_prefix}/package.json"
+        "${server_prefix}/.env"
+        "${server_prefix}/build-info.json"
+        "${server_prefix}/src/app.js"
+        "${server_prefix}/src/cli/flush-play-logs.js"
+        "${server_prefix}/src/bin/chromium-browser-kiosk-mode.sh"
+    )
 
     [[ -f "$server_zip" ]] || err "expected build artifact missing: $server_zip"
     [[ -f "$ui_zip" ]] || err "expected build artifact missing: $ui_zip"
-    [[ "$(stat -c%s "$server_zip")" -gt 1048576 ]] \
-        || err "server artifact suspiciously small (<1MB): $server_zip"
+    unzip -tqq "$server_zip" >/dev/null 2>&1 \
+        || err "server artifact is not a valid zip: $server_zip"
+    local member server_members
+    server_members="$(unzip -Z1 "$server_zip")"
+    for member in "${required_server_members[@]}"; do
+        grep -Fx "$member" <<< "$server_members" >/dev/null \
+            || err "server artifact missing expected member $member: $server_zip"
+    done
     unzip -tqq "$ui_zip" >/dev/null 2>&1 \
         || err "UI artifact is not a valid zip: $ui_zip"
     unzip -Z1 "$ui_zip" | grep -Fx "$expected_ui_index" >/dev/null \
@@ -258,7 +277,7 @@ cmd_init() {
     fi
 
     # Component-specific artifact sanity checks.
-    validate_release_artifacts "$SERVER_ZIP" "$UI_ZIP" "$UI_VERSION"
+    validate_release_artifacts "$SERVER_ZIP" "$UI_ZIP" "$UI_VERSION" "$SERVER_VERSION"
 
     # --- prior-stable detection ------------------------------------------------
     local ps_ref ps_ver ps_commit pu_ref pu_ver pu_commit
