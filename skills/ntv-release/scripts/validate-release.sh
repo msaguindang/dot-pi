@@ -50,7 +50,7 @@ else
     RELEASE_DIR="$(dirname "$match")"
 fi
 
-BUILD_ID="$(grep 'build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
+BUILD_ID="$(grep -E '^\s*build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
 [[ -n "$BUILD_ID" ]] || { echo "ERROR: no build_id in $RELEASE_DIR/release.yaml" >&2; exit 1; }
 
 LOG="/tmp/validate-${BUILD_ID}.log"

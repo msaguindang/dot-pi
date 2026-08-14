@@ -380,8 +380,16 @@ cmd_publish() {
         grep -q "$BUILD_ID" "$sh" || info "WARN: $(basename "$sh") does not reference BUILD_ID $BUILD_ID — verify its S3 URLs."
     done
 
-    # 2. checksums
-    bash "$SKILL_DIR/scripts/gen-checksums.sh" "$RELEASE_DIR"
+    # 2. checksums — the publisher is a pure transport, it must not modify
+    # release content. If checksums.sha256 already exists (committed as part
+    # of the release record at init), verify current bytes still match it —
+    # never silently regenerate/reorder it. Only generate if genuinely absent.
+    if [[ -f "$RELEASE_DIR/checksums.sha256" ]]; then
+        ( cd "$RELEASE_DIR" && sha256sum --check --quiet checksums.sha256 ) \
+            || err "checksums.sha256 exists but does not match current file bytes in $RELEASE_DIR — investigate content drift before publishing; the publisher will not silently regenerate it."
+    else
+        bash "$SKILL_DIR/scripts/gen-checksums.sh" "$RELEASE_DIR"
+    fi
 
     # 3. local validation (files, checksums, yaml, bash -n)
     bash "$SKILL_DIR/scripts/validate-release.sh" "$RELEASE_DIR" --local-only --gitops "$GITOPS"
@@ -423,7 +431,14 @@ cmd_publish() {
         cd "$GITOPS"
         # zips are S3 artifacts, not git records — never commit them (matches existing releases)
         git add "player-apps/releases/$RELEASE_ID" ":(exclude)player-apps/releases/$RELEASE_ID/*.zip"
-        git commit -m "feat(gitops): add release record for $RELEASE_ID"
+        # The release record may already be committed (e.g. from init) — that's
+        # not a failure, just nothing new to add. Only commit if something is
+        # actually staged; always proceed to push either way.
+        if ! git diff --cached --quiet; then
+            git commit -m "feat(gitops): add release record for $RELEASE_ID"
+        else
+            info "Release record already committed — nothing new to stage, pushing existing HEAD."
+        fi
         local remote
         for remote in origin forgejo; do
             if git remote get-url "$remote" >/dev/null 2>&1; then
