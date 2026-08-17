@@ -83,6 +83,18 @@ else
     fail "settings.json references missing extension(s): ${missing_ext}"
 fi
 
+if [[ -f "${script_dir}/extensions/compile-workflow.ts" ]]; then
+    pass "extensions/compile-workflow.ts exists"
+else
+    fail "extensions/compile-workflow.ts MISSING"
+fi
+
+if grep -q '"\+extensions/compile-workflow.ts"' "${script_dir}/settings.json.example" 2>/dev/null || grep -q '"+extensions/compile-workflow.ts"' "${script_dir}/settings.json.example" 2>/dev/null; then
+    pass "compile-workflow.ts is listed in settings.json.example"
+else
+    fail "compile-workflow.ts is NOT listed in settings.json.example"
+fi
+
 # No unloaded bulk inside extensions/ (vendored repos, node_modules). Threshold 10M.
 big_dirs="$(find "${script_dir}/extensions" -mindepth 1 -maxdepth 1 -type d -exec du -sm {} \; 2>/dev/null | awk '$1 > 10 {print $2}')"
 if [[ -z "$big_dirs" ]]; then

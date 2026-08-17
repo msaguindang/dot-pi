@@ -37,6 +37,7 @@
     "+extensions/cost-tracker.ts",
     "+extensions/first-run.ts",
     "+extensions/session-name-status.ts",
+    "+extensions/compile-workflow.ts",
     "+extensions/context-resolver.ts",
     "+extensions/tui-dryrun.ts",
     "+extensions/extension-watcher.ts",
