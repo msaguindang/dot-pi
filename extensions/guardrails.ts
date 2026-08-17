@@ -4,6 +4,38 @@ import * as path from "path";
 import * as crypto from "crypto";
 import { execSync } from "child_process";
 
+export function isProtectedPath(filePath: string): boolean {
+  const protectedScriptPatterns = [
+    /ntv-rpi-prep/,
+    /ntv-rpi-imager/,
+    /-prep\.sh$/,
+    /-imager\.sh$/,
+    /-deploy/,
+    /player-scripts/,
+  ];
+  return protectedScriptPatterns.some(p => p.test(filePath)) ||
+    (/\.sh$/.test(filePath) && /(deploy|prep|imager|device|rpi)/.test(filePath));
+}
+
+export function isValidReviewMarker(cmd: string): boolean {
+  const match = cmd.match(/Reviewed-by:\s+reviewer\/([a-zA-Z0-9]+)/i);
+  return match !== null && /^[a-f0-9]{8,}$/.test(match[1]);
+}
+
+export function getChangedPaths(cmdType: "commit" | "push", cwd: string): string[] | null {
+  try {
+    if (cmdType === "commit") {
+      const output = execSync("git diff --cached --diff-filter=ACMR --name-only -z", { cwd, stdio: "pipe" });
+      return output.toString("utf8").split("\0").filter(Boolean);
+    } else {
+      const output = execSync("git diff --diff-filter=ACMR --name-only -z @{u}..HEAD", { cwd, stdio: "pipe" });
+      return output.toString("utf8").split("\0").filter(Boolean);
+    }
+  } catch {
+    return null;
+  }
+}
+
 const pendingBackups = new Map<string, string | "NEW_FILE">();
 
 export default function (pi: ExtensionAPI) {
@@ -157,32 +189,12 @@ export default function (pi: ExtensionAPI) {
         (isPush && (protectedBranches.includes(currentBranch) || branchPattern.test(cmd)));
 
       if (advancesProtected) {
-        // Detect whether the repo contains operationally-dangerous scripts.
-        const protectedScriptPatterns = [
-          /ntv-rpi-prep/,
-          /ntv-rpi-imager/,
-          /-prep\.sh$/,
-          /-imager\.sh$/,
-          /-deploy/,
-          /player-scripts/,
-        ];
-        let repoHasProtectedScripts = false;
-        try {
-          const tracked = execSync("git ls-files", { cwd, stdio: "pipe" })
-            .toString()
-            .split("\n")
-            .filter(Boolean);
-          repoHasProtectedScripts = tracked.some(f =>
-            protectedScriptPatterns.some(p => p.test(f)) ||
-            (/\.sh$/.test(f) && /(deploy|prep|imager|device|rpi)/.test(f))
-          );
-        } catch {
-          repoHasProtectedScripts = false;
-        }
+        const changedPaths = getChangedPaths(isCommit ? "commit" : "push", cwd);
+        const requiresReview = changedPaths === null || changedPaths.some(isProtectedPath);
 
-        if (repoHasProtectedScripts) {
+        if (requiresReview) {
           // Review markers that lift the block.
-          const hasReviewedByTrailer = /Reviewed-by:/i.test(cmd);
+          const hasReviewedByTrailer = isValidReviewMarker(cmd);
           const hasOverrideEnv = process.env.PI_REVIEW_OVERRIDE === "1";
           let hasReviewMarkerFile = false;
           try {
