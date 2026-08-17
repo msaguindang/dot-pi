@@ -1,60 +1,48 @@
 ---
-name: delegate-pipeline
+name: delegate
 description: "Use this skill when a task requires multi-agent delegation: design, implementation, and review."
 ---
 
-Use for non-trivial tasks: multi-file edits, new features, refactors, extension authoring, anything taking more than 2 minutes inline. Skip for quick lookups, single-line fixes, DIRECT-tier responses.
+Use this optional recipe for non-trivial tasks (multi-file edits, new features, refactors) mapping to R2 or R3 tiers. Skip for quick lookups, single-line fixes, and DIRECT/R1 responses.
 
-## Pipeline
+## Pipeline by Tier
 
-```
-Phase 1 — Planner
-  Model: claude-sonnet-4-6 (medium)
-  Task:  Produce a step-by-step plan with exact file paths and verification commands.
-         No code. Only the roadmap.
-  Gate:  Plan approved by user before proceeding.
+**R2 (Significant)**
+- One `worker` to execute the changes.
+- One independent `reviewer` to verify the diff against standards and domain criteria.
+- (Optional) `planner` only if the task is complex enough to need a roadmap first.
 
-Phase 2 — Reviewer (Pre-flight)
-  Model: claude-haiku-4-5 (medium)
-  Task:  Review the plan for spec violations, missing edge cases, incorrect assumptions.
-         Output: APPROVED or list of BLOCKERS.
-  Gate:  No blockers before proceeding.
-
-Phase 3 — Worker
-  Model: claude-sonnet-4-6
-  Task:  Execute the plan exactly. One commit per logical unit. Self-review before committing.
-  Gate:  All tasks committed and clean.
-
-Phase 4 — QA (Two-stage)
-  Model: claude-haiku-4-5 (medium)
-  Stage A — Spec compliance: Does the implementation match the plan?
-  Stage B — Code quality: Correctness, error handling, style adherence.
-  Gate:  Both stages pass before marking done.
-```
+**R3 (Irreversible/External)**
+- (Required) `planner` to draft the implementation plan.
+- (Required) `oracle` pre-flight review of the plan.
+- `worker` to execute the plan.
+- (Required) `reviewer` to verify the execution BEFORE the irreversible action.
+- (Required) Post-state live probe.
+- Domain manifests are mandatory.
 
 ## Tool Invocations
 
-Each phase maps to a `subagent()` call. Use chain form only when automatic context handoff between steps is required (see note at end).
+Each phase maps to a `subagent()` call. Use chain form only when automatic context handoff between steps is required.
 
-**Phase 1 — Dispatch Planner**
-
-```js
-subagent({
-  agent: "worker",
-  task: "You are a Planner. Produce a step-by-step implementation plan for the following task. Include exact file paths, the change required at each file, and a verification command per step. Output the plan only — no code.\n\nTask: <your task description here>"
-})
-```
-
-**Phase 2 — Dispatch Reviewer (pre-flight), passing Phase 1 output**
+**Dispatch Planner (if needed)**
 
 ```js
 subagent({
-  agent: "reviewer",
-  task: "Pre-flight: check the plan below against the task's acceptance criteria / relevant manifest for spec violations, missing edge cases, or incorrect assumptions. Output your Verdict (PASS/FAIL) with per-criterion findings.\n\nAcceptance criteria / manifest:\n<paste manifest path or criteria>\n\nPlan:\n<paste Phase 1 output verbatim here>"
+  agent: "planner",
+  task: "Produce a step-by-step implementation plan for the following task. Include exact file paths, the change required at each file, and a verification command per step. Output the plan only — no code.\n\nTask: <your task description here>"
 })
 ```
 
-**Phase 3 — Dispatch Worker with approved plan**
+**Dispatch Oracle Pre-flight (R3 only)**
+
+```js
+subagent({
+  agent: "oracle",
+  task: "Pre-flight: check the plan below against the task's acceptance criteria / relevant manifest for spec violations, missing edge cases, or incorrect assumptions. Output your Verdict (PASS/FAIL) with per-criterion findings.\n\nAcceptance criteria / manifest:\n<paste manifest path or criteria>\n\nPlan:\n<paste planner output verbatim here>"
+})
+```
+
+**Dispatch Worker**
 
 ```js
 subagent({
@@ -63,19 +51,12 @@ subagent({
 })
 ```
 
-**Phase 4 — Dispatch QA (two-stage), passing plan + diff**
+**Dispatch Reviewer (One pass for R2/R3)**
 
 ```js
-// Stage A — spec compliance
 subagent({
   agent: "reviewer",
-  task: "QA Stage A — spec compliance. Compare the implementation diff against the original plan. Does every planned step appear in the diff? Output your Verdict (PASS/FAIL) with per-criterion findings.\n\nPlan:\n<paste plan>\n\nDiff:\n<paste git diff output>"
-})
-
-// Stage B — code quality (only after Stage A passes)
-subagent({
-  agent: "reviewer",
-  task: "QA Stage B — code quality. Review the diff for correctness, error handling, and adherence to standards/code-style.md (the acceptance contract). Output your Verdict (PASS/FAIL) with per-criterion findings.\n\nDiff:\n<paste git diff output>"
+  task: "Review the diff for correctness, error handling, adherence to standards/code-style.md, and compliance with the plan/domain manifest. Output your Verdict (PASS/FAIL) with per-criterion findings.\n\nPlan/Criteria:\n<paste plan/criteria>\n\nDiff:\n<paste git diff output>"
 })
 ```
 
@@ -91,7 +72,7 @@ For interactive, supervised pipelines where you relay outputs between phases you
 ## Orchestrator rules
 
 - Pass the full plan doc to Worker. Do not summarize.
-- Pass the plan + diff to QA. Do not summarize.
-- If QA fails: route back to Worker with specific failure reason. Re-review after fix.
-- Never mark a task complete until QA Stage B passes.
+- Pass the plan + diff to Reviewer. Do not summarize.
+- If Reviewer fails: route back to Worker with specific failure reason. Re-review after fix.
+- Never mark a task complete until Reviewer passes.
 - Never write code as the orchestrator — always delegate to Worker.

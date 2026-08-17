@@ -123,6 +123,54 @@ else
     fail "INV-16 AGENTS.md missing @~/.agents/standards/tool-policy.md — must be in immutable core"
 fi
 
+if [[ "$(grep -cE '^@.*orchestration-policy\.md' "${script_dir}/AGENTS.md" 2>/dev/null || true)" == "1" ]]; then
+    pass "orchestration-policy.md loads exactly once in AGENTS.md"
+else
+    fail "orchestration-policy.md does not load exactly once in AGENTS.md"
+fi
+
+# Reviewer budget
+if grep -q 'turnBudget: {"maxTurns":20,"graceTurns":5}' "${script_dir}/agents/reviewer.md" 2>/dev/null; then
+    pass "reviewer budget is pinned"
+else
+    fail "reviewer budget is not pinned correctly"
+fi
+
+# Skill naming consistent
+if grep -q "name: delegate" "${script_dir}/skills/delegate/SKILL.md" 2>/dev/null && ! grep -q "name: delegate-pipeline" "${script_dir}/skills/delegate/SKILL.md" 2>/dev/null; then
+    pass "delegate skill naming is consistent"
+else
+    fail "delegate skill naming is inconsistent"
+fi
+
+# Check R0/R1/R2/R3 markers in APPEND_SYSTEM.md
+if grep -q "R0" "${script_dir}/APPEND_SYSTEM.md" 2>/dev/null && grep -q "R3" "${script_dir}/APPEND_SYSTEM.md" 2>/dev/null; then
+    pass "R0/R1/R2/R3 markers exist in APPEND_SYSTEM.md"
+else
+    fail "R0-R3 markers missing in APPEND_SYSTEM.md"
+fi
+
+# Check absence of blanket triggers
+if grep -qi "Default Trigger" "${script_dir}/skills/delegation-airlock/SKILL.md" 2>/dev/null; then
+    fail "old blanket trigger found in delegation-airlock"
+else
+    pass "no old blanket triggers in delegation-airlock"
+fi
+
+# Acceptance vocabulary does not request 'reviewed'
+if grep -qE "acceptance.*reviewed" "${script_dir}/APPEND_SYSTEM.md" 2>/dev/null; then
+    fail "acceptance vocabulary requests 'reviewed'"
+else
+    pass "acceptance vocabulary does not request 'reviewed'"
+fi
+
+# 'verified' guidance mentions host verify commands
+if grep -qE "verified.*host.*verify.*commands" "${script_dir}/APPEND_SYSTEM.md" 2>/dev/null || grep -qE "verified.*host.*verify.*commands" ~/.agents/standards/orchestration-policy.md 2>/dev/null; then
+    pass "'verified' guidance mentions host verify commands"
+else
+    fail "'verified' guidance missing host verify commands"
+fi
+
 # INV-17 if contextProfile is set in settings.json, it must be a recognized profile name.
 _ctx_profile="$(grep -oE '"contextProfile" *: *"[^"]*"' "$SETTINGS" 2>/dev/null | sed -E 's/.*: *"([^"]*)"/\1/' || true)"
 _valid_profiles=("default" "ntv" "pi-harness" "desktop" "brainstorm")

@@ -14,7 +14,7 @@ Skills must be loaded **before** the task they govern, not after. Loading mid-ta
 
 | Before doing this... | Load this skill first | Why |
 |---|---|---|
-| Dispatching any multi-agent pipeline (design → implement → review) | `delegate` | Defines the Phase 1/2/3 gate structure; without it, orchestrator improvises the pipeline incorrectly |
+| Any R2/R3 multi-agent pipeline (design → implement → review) | `delegate` | Defines the Phase 1/2/3 gate structure mapped to R2/R3 tier policies; without it, orchestrator improvises the pipeline incorrectly |
 | Dispatching any `subagent()` chain | `pi-subagents` | Chain syntax (`subagent({ chain: [...] })`) is only available after this skill is loaded |
 | Dispatching any subagent with a complex task prompt | `delegation-validator` | Scans the prompt for relative context references that will silently fail in forked sessions |
 | Any NTV domain question, harness question, hyprland, or wezterm | `pi-knowledge-search` | Context is NOT auto-loaded — LLM has no NTV-specific facts without it |
@@ -55,7 +55,7 @@ All skills are invoked via slash command in a pi session:
 
 | Skill | Slash Command | Notes |
 |---|---|---|
-| `delegate` | `/delegate` | Multi-agent pipeline template |
+| `delegate` | `/delegate` | Multi-agent pipeline mapped to R2/R3 tiers |
 | `delegation-validator` | `/delegation-validator` | Pass the draft subagent prompt inline after the command |
 | `discord-eod-fetcher` | `/discord-eod-fetcher` | Manual fetch trigger; normally runs via systemd timer |
 | `gmail` | `/gmail` | Requires `gmail.ts` extension enabled and OAuth configured |

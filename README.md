@@ -78,7 +78,7 @@ pi "hello"
 ```
 ~/.pi/agent/                        ← this repo (shareable)
 ├── AGENTS.md                       # context chain — loads ~/.agents/ files
-├── APPEND_SYSTEM.md                # routing rules, pre-fix gate, TUI rendering
+├── APPEND_SYSTEM.md                # routing rules, TUI rendering, NTV domain gates
 ├── settings.json.example           # template — copy to settings.json on first setup (gitignored at runtime)
 ├── agents/                         # specialized sub-agents
 │   ├── delegate.md                 # local override
@@ -117,7 +117,7 @@ pi "hello"
 
 `context-resolver.ts` expands `@`-includes recursively (profile files themselves contain `@` lines) and substitutes the active profile into the sentinel line before expansion.
 
-`APPEND_SYSTEM.md` appends harness-specific rules after the above (routing policy, TUI rendering overrides, agent notes, pre-fix diagnostic gate).
+`APPEND_SYSTEM.md` appends harness-specific rules after the above (routing policy, TUI rendering overrides, agent notes, and NTV domain gates). Note: canonical risk tier policies, pre-fix gates, and post-mutation review logic have moved to `~/.agents/standards/orchestration-policy.md`.
 
 ### Context Profiles
 

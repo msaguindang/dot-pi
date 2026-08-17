@@ -11,29 +11,16 @@ Nothing is trusted on the worker's word alone.
 
 Pipeline: **task file → validate → dispatch worker → parent verify → dispatch reviewer → (recover if needed)**.
 
-## Default Trigger — Don't Wait to Be Asked
+## Application by Risk Tier
 
-This pipeline is the agent's own default initiative for non-trivial planning
-and mutation work — not something invoked only when the user says "have
-scout look at it" or "dispatch a worker for this". Two triggers apply
-automatically, without being asked:
+This pipeline is mandatory for **R3** (irreversible/external) and **audited/cross-repository R2** work.
 
-1. **Before drafting an implementation plan** for a non-trivial ticket or
-   task, dispatch a scout / Explore-type read-only subagent to analyze the
-   relevant mechanism first. Plan from what the scout found, not from
-   assumption.
-2. **Before any code mutation, test run, or build/deploy action**, route
-   through this airlock pipeline (task file → validate → worker → verify →
-   review) — or, at minimum, dispatch a worker — by default for non-trivial
-   work.
-
-Exception: trivial, single-line, obviously-correct changes (typo fix,
-one-line config value, comment update) don't need the full ceremony — use
-judgement, don't spin up a four-step pipeline for a one-line diff. If it's
-unclear whether a task is "trivial", it isn't — run the pipeline.
+1. **R0 (Read-Only) / R1 (Local Reversible)**: Use native checked acceptance. Do not use the full generated-task airlock or mandatory reviewer by default. Tests and builds are classified by their side effects.
+2. **R2 (Significant)**: Requires an independent reviewer. A durable task artifact (airlock) is required only for audited or cross-repository work.
+3. **R3 (Irreversible/External)**: Full airlock pipeline (task file → validate → worker → verify → review) is mandatory.
 
 MUST, no exception: for any task file targeting release/build/QA-candidate/
-deploy work — anything touching `ntv-release`, a QA-candidate directory, or
+deploy work when R3 or audited R2 — anything touching `ntv-release`, a QA-candidate directory, or
 a script governed by `deploy-script-standard.md` — the task file MUST be
 produced by `scripts/create-task.sh`. A hand-written task file for this
 category is a hard stop, not "acceptable if validated" by

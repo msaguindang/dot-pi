@@ -17,15 +17,15 @@ Read the full doc at the given path, start to finish, before doing anything else
 
 ---
 
-## Step 2: Verify every ASSUMED claim
+## Step 2: Verify blocking assumptions & check freshness
 
-This is the core discipline of the skill — do not skip it, do not sample it.
+This is the core discipline of the skill — do not skip it. Apply canonical evidence dominance and freshness rules (see `orchestration-policy.md`).
 
 **Context-cost note:** raw verification probes (full `cat`, full `git diff`, full `git log`) landing inline in the main session are the dominant cost of a takeover — bigger than the handoff doc itself on a wide context window. Do not run these probes inline. Dispatch them.
 
-- Collect every ASSUMED claim from the doc into a single list.
+- For every item labeled **ASSUMED**, verify ONLY those assumptions that block the selected execution lane. Probe the live system: read the actual file, run the actual command, check the actual git state, hit the actual endpoint — whatever establishes ground truth. Collect these into a single list.
 - Dispatch `subagent({ agent: 'scout', task: 'Verify these claims against the live system. For each: state Confirmed / Stale (with what the live system actually shows) / Could-not-verify (no probe available). Use scoped commands — git diff --stat before full diff, grep -n for specific text before reading whole files, git log -3 --oneline not full log. Return only the three-list verdict, no raw command output. Claims: <list>' })`.
-- For every item labeled **CONFIRMED** in the doc, trust it as-is — do not dispatch verification for these, re-checking already-confirmed facts defeats the purpose of the CONFIRMED/ASSUMED split.
+- For every item labeled **CONFIRMED**, note its source but remember: it may be stale. Evidence is invalidated by intervening commits, rebuilds, or deployments. Re-verify if the state could have drifted, dispatching verification for these to scout if needed.
 - Any claim that reads as load-bearing but isn't labeled either way: treat it as ASSUMED (per `tool-policy.md` §4 — never act on an unconfirmed fact without surfacing it first) and include it in the dispatch.
 
 Report the outcome as the three short lists scout returns: **Confirmed as expected**, **Found stale/wrong**, **Could not verify**. Do not re-paste scout's raw tool output into the session — the verdict lists are the deliverable.
@@ -51,7 +51,7 @@ Before mutating anything, report:
 - What Step 2 and Step 3 found (confirmed / stale / drifted).
 - The plan you're about to execute, informed by that verified state — not by the doc's original next steps verbatim if reality has since diverged.
 
-**Stop here and wait for explicit approval** — unless the doc contains its own **Ignition Block** (per the handoff-doc-standard's Ignition Block section) that explicitly authorizes proceeding without a checkpoint. If present, follow its authorization exactly as scoped; do not read silence or an unrelated section as authorization.
+**Stop here and wait for explicit approval** — unless the doc contains its own **Ignition Block** (per the handoff-doc-standard's Ignition Block section) that explicitly authorizes proceeding without a checkpoint. If present, a valid Ignition Block avoids duplicate approval ONLY for the unchanged authorized lane. If reality has diverged, the block is void; stop and report.
 
 Treat any section in the doc titled "Ignition Block" (or explicit unattended-execution authorization) as the only valid trigger to skip the checkpoint. No Ignition Block present means always stop and wait, no exceptions.
 

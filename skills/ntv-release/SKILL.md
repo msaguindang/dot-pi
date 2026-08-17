@@ -33,6 +33,7 @@ self-detach via re-download, SIGHUP trap, idempotency gate, crontab window,
 
 ## Operating Defaults
 
+- **Risk Tier Application:** Editing release tooling locally without publishing/deploying is **R2**. Executing prepare, publish, or deploy external steps is **R3** (Irreversible/External). See `~/.agents/standards/orchestration-policy.md` for canonical generic definitions (evidence rules, fail-fast limits, output hygiene, and blast-radius defaults).
 - **Session-continuation scope lock.** When resuming a release from a handoff doc, scope
   is frozen to exactly what the handoff doc specifies. No new findings, no
   re-investigation of settled root causes, no refactors — unless the user explicitly
@@ -50,16 +51,9 @@ self-detach via re-download, SIGHUP trap, idempotency gate, crontab window,
   filename-presence PASS alone is no longer sufficient by construction: stage 6b runs
   immediately after stage 6 and fails the whole validation (non-zero exit, explicit
   `[FAIL] CONTENT MISMATCH` line) on any content mismatch.
-- **Subagent output hygiene.** Subagents dispatched during a release ritual return
-  verdict/summary only. Full logs, command output, or device output goes to an artifact
-  file referenced by path — never pasted wholesale into the orchestrator's own context.
 - **Handoff doc protocol.** Re-read the relevant `agent-sessions/` handoff doc at the
   start of every phase. After every phase completes, append outcome + evidence (SHAs,
   verdicts, timestamps) to its progress log.
-- **Blast-radius default.** No device or fleet mutation beyond what's explicitly
-  authorized for the current step. Any failure stops the ritual, reports evidence
-  (including raw error bodies), and awaits instruction — never retry blindly or proceed
-  past a failure.
 
 ## Pre-Merge QA Gate (Mandatory)
 

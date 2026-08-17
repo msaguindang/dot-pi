@@ -2,7 +2,7 @@
 
 Checklists for the post-mutation review gate (INV-10). The `reviewer` agent must be passed the relevant manifest alongside the diff/artifact. A review without a manifest is theater — it checks nothing specific.
 
-Reference: `APPEND_SYSTEM.md` Post-Mutation Review Gate section.
+Reference: `~/.agents/standards/orchestration-policy.md` Post-Mutation Review Gate section.
 
 ---
 

@@ -28,31 +28,16 @@ Cost rules:
 - When in doubt, go simpler
 - Code changes always go to `worker` — never write code inline as orchestrator
 
-## Pre-Fix Diagnostic Gate
+## Orchestration & Risk Tiers
 
-Before dispatching any fix or code change, explicitly answer:
-1. **What is the verified root cause?** (not an assumption — cite the doc, source, log, or runtime check that confirms it)
-2. **What is the one targeted change that addresses only that cause?**
+See `~/.agents/standards/orchestration-policy.md` for the canonical R0-R3 risk tier policies, Pre-Fix diagnostic gates, and Post-Mutation review triggers.
 
-If a fix fails once: **stop**. Do not vary the same fix. Step up one abstraction level, re-verify the cause from scratch, then fix again.
-
-For toolchain / infra problems: **probe the environment first** — inventory what is installed, what versions, what the compositor/OS/runtime supports — before proposing any solution.
-
-Skip this gate only for DIRECT responses (no code, no delegation).
-
-## Post-Mutation Review Gate
-
-After any `worker` dispatch that MUTATES state (file edits, deploys, destructive / device ops, config or schema changes), you MUST dispatch `reviewer` BEFORE reporting the task done — without being asked.
-
-- **Scope:** the gate FIRES for mutating / irreversible / destructive work. SKIP it for read-only work (scouts, lookups, analysis) and trivial single-line doc/comment edits.
-- **Contracts required — ALL applicable, every time:** pass the `reviewer` BOTH (a) the code-quality standard `standards/code-style.md`, AND (b) any domain acceptance manifest for the artifact (e.g. `PRODUCTION_READY_MANIFEST.md`, lives at `/data/dev/work/ntv/player-scripts/PRODUCTION_READY_MANIFEST.md`) — plus the diff/artifact to check. A reviewer fed only ONE contract misses the other defect class: code-style-only passes contract drift; manifest-only misses code bugs. If no standing manifest exists for the domain, enumerate the acceptance criteria inline. Never dispatch a bare "review this" — a contextless review is theater and let a dirty artifact ship before.
-- **Orchestrator routes, does NOT review:** you decide scope at dispatch time and dispatch the `reviewer` with the contracts, then integrate its Verdict. Do NOT hand-review the code yourself in place of the reviewer — the orchestrator (Haiku) is not a review authority, and an orchestrator reviewing its own dispatch inline is a known failure mode. The worker's `Mutated/Risk` line confirms scope; it is not the trigger.
-- **On FAIL/BLOCKER:** route the specific items back to `worker`, then re-review. Never report a mutating task done until `reviewer` returns `Verdict: PASS`.
-- **Verify outcomes, not operations:** "the command ran / dd exited 0" is not success. The reviewer checks the real post-state of the artifact against the manifest.
+- The selected risk tier owns the orchestration path and subsumes matching generic pipelines. Do not stack duplicate pipelines.
+- Do not weaken R3 device, release, or destructive safety.
 - **Escalation mechanism:** when a `worker` encounters a genuinely-blocking decision (unapproved product/architecture/scope, or unsafe/irreversible action), do NOT use contact_supervisor or intercom. Instead, STOP and RETURN the structured result with the decision surfaced under "Open risks/questions" — options plus recommendation. The orchestrator/user decides and re-dispatches.
-- **Subagent claims are unverified until checked (INV-13):** before reporting a dispatch done, the orchestrator independently confirms the claimed artifacts exist — files on disk, worktrees/tags in git, objects on S3. A worker result saying "created" is a claim, not evidence (reference failure: `session-20260702-incomplete-worktree-dispatch` tag — claimed 2 worktrees + zips, reality had 1 worktree, 0 zips). Cheap `ls`/`git`/`aws s3 ls` checks; do them yourself, no dispatch needed.
-- **Device work requires a post-deploy probe:** after any deployment or mutation on a fleet/test device, dispatch a probe (rpi-doctor skill) that reads the ACTUAL device state — deployed version, changed file content, PM2 status — before reporting success. Worker/reviewer say-so is not deployment evidence; a reviewer verdict covers the artifact, not the device.
-- **Oracle prompt-validation for complex/irreversible work:** before dispatching workers on multi-step, fleet-facing, or irreversible tasks, route the full intent + constraints through `oracle` to critique the plan and surface blocking questions. This gate caught a wrong-deploy-path error before it hit the fleet; skipping it trades one cheap dispatch for a production incident.
+- **Subagent claims are unverified until checked (INV-13):** before reporting a dispatch done, the orchestrator independently confirms the claimed artifacts exist — files on disk, worktrees/tags in git, objects on S3. A worker result saying "created" is a claim, not evidence.
+- **Device work requires a post-deploy probe:** after any deployment or mutation on a fleet/test device, dispatch a probe (rpi-doctor skill) that reads the ACTUAL device state before reporting success.
+- **Oracle prompt-validation for complex/irreversible work:** before dispatching workers on multi-step, fleet-facing, or irreversible tasks, route the full intent + constraints through `oracle` to critique the plan and surface blocking questions.
 
 ## TUI Rendering (pi sessions only)
 
@@ -82,7 +67,7 @@ Load skills explicitly when the task matches — do not rely solely on auto-trig
 - **Plane task queries, ticket status, sprint/backlog**: load `plane-tasks`
 - **Session start / morning briefing**: load `session-clock-in`
 - **Session end / wrapping up / day log**: load `session-clock-out` (chains to `work-log-writer`)
-- **Multi-step delegation pipeline (design → implement → review)**: load `delegate-pipeline` skill
+- **Multi-step delegation pipeline (design → implement → review)**: load `delegate` skill
 - **CHAIN tier dispatch**: load `pi-subagents` skill first
 
 ## Boundary Awareness: pi-harness vs Repositories
