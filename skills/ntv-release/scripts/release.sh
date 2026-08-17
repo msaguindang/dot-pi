@@ -100,6 +100,36 @@ render() { # render <template> <out> KEY=VALUE...
     fi
 }
 
+get_build_id() {
+    local yaml_file="$1"
+    local build_ids num_matches build_id
+    build_ids=$(awk '
+      /^s3:[ \t]*(#.*)?$/ { in_s3 = 1; next }
+      /^[a-zA-Z0-9_-]+:/ { in_s3 = 0 }
+      in_s3 && /^[ \t]+build_id:[ \t]+/ {
+        val = $0
+        sub(/^[ \t]+build_id:[ \t]+/, "", val)
+        sub(/[ \t]*(#.*)?$/, "", val)
+        gsub(/^"|"$|^'\''|'\''$/, "", val)
+        if (val != "") print val
+      }
+    ' "$yaml_file")
+    num_matches=$(echo "$build_ids" | awk 'NF' | wc -l | tr -d ' ')
+    if [[ "$num_matches" -eq 0 ]]; then
+        echo "ERROR: missing s3.build_id in $yaml_file" >&2
+        exit 1
+    elif [[ "$num_matches" -gt 1 ]]; then
+        echo "ERROR: duplicate s3.build_id in $yaml_file" >&2
+        exit 1
+    fi
+    build_id=$(echo "$build_ids" | awk 'NF')
+    if ! [[ "$build_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+        echo "ERROR: malformed s3.build_id in $yaml_file: $build_id" >&2
+        exit 1
+    fi
+    echo "$build_id"
+}
+
 # --- prior-stable detection --------------------------------------------------
 # Source of truth: latest ANNOTATED v* tag (objecttype "tag"), sort -V.
 # Bare vX.Y.Z tags are preferred; suffixed tags (v2.9.44-rc.0, v3.0.45-HLZHSVWV)
@@ -336,7 +366,7 @@ cmd_init() {
 
     cp "$SERVER_ZIP" "$UI_ZIP" "$RELEASE_DIR/"
 
-    # Seed device scripts from fleet-gitops templates — MUST be adapted by hand.
+    # Seed device scripts from fleet-gitops templates and render them for this release.
     local T="$GITOPS/player-apps/templates"
     [[ -f "$T/deploy-ntv-bundle.sh" ]] && cp "$T/deploy-ntv-bundle.sh" "$RELEASE_DIR/deploy-ntv-bundle.sh"
     [[ -f "$T/update-server.sh"     ]] && cp "$T/update-server.sh"     "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
@@ -345,6 +375,39 @@ cmd_init() {
     # (same prior_release_dir selected above — non-retired, newest by date).
     local prior_rb="$prior_release_dir/rollback-bundle.sh"
     [[ -f "$prior_rb" ]] && cp "$prior_rb" "$RELEASE_DIR/rollback-bundle.sh"
+
+    local sh
+    for sh in "$RELEASE_DIR"/*.sh; do
+        [[ -f "$sh" ]] || continue
+        # Remove TEMPLATE header
+        sed -i '/^# TEMPLATE/d' "$sh"
+    done
+
+    # Substitute variables
+    [[ -f "$RELEASE_DIR/deploy-ntv-bundle.sh" ]] && sed -i -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$SERVER_VERSION\"/" \
+           -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$UI_VERSION\"/" \
+           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUILD_ID\"/" \
+           "$RELEASE_DIR/deploy-ntv-bundle.sh"
+
+    [[ -f "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh" ]] && sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$SERVER_VERSION\"/" \
+           -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$SERVER_VERSION\"/" \
+           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUILD_ID\"/" \
+           -e "s|/player-server-[0-9\.]*\.zip|/player-server-${SERVER_VERSION}.zip|" \
+           "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
+
+    [[ -f "$RELEASE_DIR/update-${UI_VERSION}-ui.sh" ]] && sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$UI_VERSION\"/" \
+           -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$UI_VERSION\"/" \
+           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUILD_ID\"/" \
+           -e "s|/player-ui-[0-9\.]*\.zip|/player-ui-${UI_VERSION}.zip|" \
+           "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
+
+    [[ -f "$RELEASE_DIR/rollback-bundle.sh" ]] && sed -i -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$ps_ver\"/" \
+           -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$pu_ver\"/" \
+           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$prior_build_id\"/" \
+           "$RELEASE_DIR/rollback-bundle.sh"
+
+    info "Generating checksums..."
+    bash "$SKILL_DIR/scripts/gen-checksums.sh" "$RELEASE_DIR"
 
     cat <<EOF
 
@@ -355,15 +418,16 @@ Release dir: $RELEASE_DIR
 Fix branch:  ${FIX_BRANCH:-"(not recorded)"}
 S3 target:   s3://$S3_BUCKET/secure-rc/$BUILD_ID/   (nothing uploaded yet)
 
-NEXT (before publish) — adapt the seeded device scripts IN THE RELEASE DIR
-per fleet-gitops/docs/deploy-script-standard.md:
-  1. deploy-ntv-bundle.sh          — set BUILD_ID=$BUILD_ID, versions, S3 URLs
-  2. update-${SERVER_VERSION}-server.sh — set VERSION, zip URL
-  3. update-${UI_VERSION}-ui.sh    — set VERSION, zip URL
-  4. rollback-bundle.sh            — targets: server $ps_ver / ui $pu_ver
+NEXT (before publish) — review generated scripts:
+  1. deploy-ntv-bundle.sh
+  2. update-${SERVER_VERSION}-server.sh
+  3. update-${UI_VERSION}-ui.sh
+  4. rollback-bundle.sh
+
+Validate, review, and commit the non-ZIP release record (including checksums.sha256).
 
 Then:  release.sh publish "$RELEASE_DIR"            (dry-run)
-       release.sh publish "$RELEASE_DIR" --execute  (upload + commit + push)
+       release.sh publish "$RELEASE_DIR" --execute  (validate, upload, verify, and push)
 EOF
 }
 
@@ -384,8 +448,7 @@ cmd_publish() {
     local RELEASE_ID; RELEASE_ID="$(basename "$RELEASE_DIR")"
 
     local BUILD_ID
-    BUILD_ID="$(grep -E '^\s*build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
-    [[ -n "$BUILD_ID" ]] || err "no build_id in $RELEASE_DIR/release.yaml"
+    BUILD_ID="$(get_build_id "$RELEASE_DIR/release.yaml")" || err "failed to parse s3.build_id"
 
     # 1. bash -n every script (also re-checked by the validator)
     local sh
@@ -399,16 +462,22 @@ cmd_publish() {
         grep -q "$BUILD_ID" "$sh" || info "WARN: $(basename "$sh") does not reference BUILD_ID $BUILD_ID — verify its S3 URLs."
     done
 
-    # 2. checksums — the publisher is a pure transport, it must not modify
-    # release content. If checksums.sha256 already exists (committed as part
-    # of the release record at init), verify current bytes still match it —
-    # never silently regenerate/reorder it. Only generate if genuinely absent.
-    if [[ -f "$RELEASE_DIR/checksums.sha256" ]]; then
-        ( cd "$RELEASE_DIR" && sha256sum --check --quiet checksums.sha256 ) \
-            || err "checksums.sha256 exists but does not match current file bytes in $RELEASE_DIR — investigate content drift before publishing; the publisher will not silently regenerate it."
-    else
-        bash "$SKILL_DIR/scripts/gen-checksums.sh" "$RELEASE_DIR"
-    fi
+    # 2. verify checksums
+    [[ -f "$RELEASE_DIR/checksums.sha256" ]] || err "checksums.sha256 missing — prepare phase must generate it"
+    (cd "$RELEASE_DIR" && LC_ALL=C sha256sum --check --quiet checksums.sha256) || err "checksum verification failed"
+
+    # Check git status for the release directory
+    (
+        cd "$GITOPS"
+        local rel_path="player-apps/releases/$RELEASE_ID"
+        local diff_out untracked_out tracked_zips
+        diff_out="$(git diff --name-only HEAD -- "$rel_path" | grep -v '\.zip$' || true)"
+        [[ -z "$diff_out" ]] || err "Modified or staged files in $rel_path: $diff_out"
+        untracked_out="$(git ls-files --others --exclude-standard "$rel_path" | grep -v '\.zip$' || true)"
+        [[ -z "$untracked_out" ]] || err "Unexpected untracked files in $rel_path (only .zip allowed): $untracked_out"
+        tracked_zips="$(git ls-files "$rel_path" | grep '\.zip$' || true)"
+        [[ -z "$tracked_zips" ]] || err "ZIPs must remain untracked: $tracked_zips"
+    )
 
     # 3. local validation (files, checksums, yaml, bash -n)
     bash "$SKILL_DIR/scripts/validate-release.sh" "$RELEASE_DIR" --local-only --gitops "$GITOPS"
@@ -421,10 +490,10 @@ cmd_publish() {
 
     if [[ "$EXECUTE" == "false" ]]; then
         echo ""
-        echo "=== DRY RUN — nothing uploaded, nothing committed ==="
+        echo "=== DRY RUN — nothing uploaded, nothing pushed ==="
         echo "Would upload to $S3_DEST:"
         printf '  %s\n' "${FILES[@]}"
-        echo "Would commit + push $RELEASE_ID to fleet-gitops (origin + forgejo)."
+        echo "Would verify and push existing HEAD to fleet-gitops (origin + forgejo)."
         echo "Re-run with --execute to perform."
         return 0
     fi
@@ -445,19 +514,9 @@ cmd_publish() {
     bash "$SKILL_DIR/scripts/validate-release.sh" "$RELEASE_DIR" --gitops "$GITOPS" \
         || err "post-upload validation failed."
 
-    # 6. Commit + push fleet-gitops to both remotes
+    # 6. Push fleet-gitops to both remotes (no commit creation)
     (
         cd "$GITOPS"
-        # zips are S3 artifacts, not git records — never commit them (matches existing releases)
-        git add "player-apps/releases/$RELEASE_ID" ":(exclude)player-apps/releases/$RELEASE_ID/*.zip"
-        # The release record may already be committed (e.g. from init) — that's
-        # not a failure, just nothing new to add. Only commit if something is
-        # actually staged; always proceed to push either way.
-        if ! git diff --cached --quiet; then
-            git commit -m "feat(gitops): add release record for $RELEASE_ID"
-        else
-            info "Release record already committed — nothing new to stage, pushing existing HEAD."
-        fi
         local remote
         for remote in origin forgejo; do
             if git remote get-url "$remote" >/dev/null 2>&1; then

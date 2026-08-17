@@ -182,7 +182,7 @@ state, when applicable:
 
 ## Usage
 
-### Phase 1 — init (build + record scaffolding, no network writes)
+### Phase 1 — init (build + record scaffolding, checksums, no network writes)
 
 ```bash
 ~/.pi/agent/skills/ntv-release/scripts/release.sh init \
@@ -195,25 +195,31 @@ Preflights both repos (clean tree, package.json == requested version), runs prod
 generates the BUILD_ID, detects prior-stable, creates
 `fleet-gitops/player-apps/releases/<YYYY-MM-DD>_<sv>-server_<uv>-ui/` with release.yaml,
 rollback.md, verification.md, both zips, and device-script seeds copied from
-`fleet-gitops/player-apps/templates/`.
+`fleet-gitops/player-apps/templates/`. Checksums are generated here.
+PREPARE is the sole writer.
 
-### Phase 2 — adapt device scripts (agent/human, in the release dir)
+### Phase 2 — review generated scripts and commit
 
-Embed the printed BUILD_ID and versions into `deploy-ntv-bundle.sh`,
-`update-<sv>-server.sh`, `update-<uv>-ui.sh`, `rollback-bundle.sh`, per
-deploy-script-standard.md. Remove the `# TEMPLATE` header line — publish refuses scripts
-that still carry it, and warns on scripts that never mention the BUILD_ID.
+Review the automatically rendered scripts: `deploy-ntv-bundle.sh`, `update-<sv>-server.sh`,
+`update-<uv>-ui.sh`, and `rollback-bundle.sh`. They are generated from the checksum-verified
+canonical fleet baseline.
 
-### Phase 3 — publish (dry-run by default)
+Validate, review, and commit the non-ZIP release record (including checksums.sha256).
+ZIPs must remain untracked.
+
+### Phase 3 — publish (locally read-only pure transport, dry-run by default)
 
 ```bash
 ~/.pi/agent/skills/ntv-release/scripts/release.sh publish <release-dir>            # dry-run
 ~/.pi/agent/skills/ntv-release/scripts/release.sh publish <release-dir> --execute  # real
 ```
 
-`--execute`: `bash -n` gate, checksums, local validation, S3 immutability guard, upload,
-post-upload S3 validation, then commit (zips excluded — they are S3 artifacts, not git
-records) and push fleet-gitops to both `origin` and `forgejo`.
+PUBLISH is locally read-only: it validates existing bytes and committed state, uploads only
+manifest-listed bytes plus manifest, round-trip verifies, and pushes the existing commit.
+Publication never rebuilds, rerenders, regenerates checksums, rewrites files, or creates commits.
+
+`--execute`: `bash -n` gate, local validation against existing checksum manifest, S3 immutability guard, upload,
+post-upload S3 validation, then push fleet-gitops existing HEAD to both `origin` and `forgejo`.
 
 ### Standalone validation
 
