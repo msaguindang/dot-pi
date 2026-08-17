@@ -676,7 +676,7 @@ export default function (pi: ExtensionAPI): void {
 		return { cancel: true };
 	});
 
-	pi.on("session_compact", (event, ctx) => {
+	pi.on("session_compact", (_event, ctx) => {
 		// Count every landed compaction, before any gate below — see the
 		// 2026-08-11 header addendum. Sits ahead of the willRetry/runActive
 		// gates deliberately: those decide whether to auto-continue, not
@@ -696,33 +696,6 @@ export default function (pi: ExtensionAPI): void {
 		// summary-of-a-summary. previousRatio doesn't need the same treatment:
 		// it self-corrects on its own from the next message_end's usage read.
 		compactionDue = false;
-
-		// See header comment for the full trace. willRetry: true means the
-		// harness's own overflow recovery already resumes the turn — acting here
-		// too would double-continue. Only act when it did NOT auto-retry.
-		if (event.willRetry) return;
-
-		// Gate on a run actually having been active — see the 2026-08-03 header
-		// section (fix part 2) for the full abort-ordering trace on why this is
-		// `ourCompactionInFlight || runActive` and not a bare runActive read.
-		if (!ourCompactionInFlight && !runActive) return;
-
-		if (ctx.hasUI) {
-			ctx.ui.notify(
-				"[context-guardian] Compaction did not auto-retry — synthesizing a continuation so the task resumes without a manual \"continue\".",
-				"info",
-			);
-		}
-
-		// deliverAs: "followUp" unconditionally (not gated on ctx.isIdle()) — see
-		// header comment for why the session isn't reliably idle here, and why
-		// "followUp" is safe and correct either way. No triggerTurn: not a valid
-		// option on sendUserMessage, and none is needed — it always triggers a
-		// turn on its own (see header comment).
-		pi.sendUserMessage(
-			"Compaction just ran mid-task and the turn was not auto-retried. Continue the task from exactly where the compaction summary left off, using the next step it recorded — do not re-derive context from scratch.",
-			{ deliverAs: "followUp" },
-		);
 	});
 
 	pi.on("turn_end", (_event, ctx) => {
