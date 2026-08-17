@@ -149,6 +149,13 @@ function rgb(r: number, g: number, b: number): string {
 }
 const RESET = "\x1b[39m";
 
+function randomNextIndex(current: number, length: number): number {
+	if (length <= 1) return 0;
+	let next = current;
+	while (next === current) next = Math.floor(Math.random() * length);
+	return next;
+}
+
 function generateMatrixFrames(count: number): string[] {
 	const frames: string[] = [];
 	for (let f = 0; f < count; f++) {
@@ -278,8 +285,8 @@ export default function (pi: ExtensionAPI): void {
 			}
 			pauseTicks++;
 			if (pauseTicks >= PAUSE_DURATION_TICKS) {
-				if (activeTools > 0 || subagentsBusy) actionIndex++;
-				else thinkingIndex++;
+				if (activeTools > 0 || subagentsBusy) actionIndex = randomNextIndex(actionIndex, ACTION_QUOTES.length);
+				else thinkingIndex = randomNextIndex(thinkingIndex, THINKING_QUOTES.length);
 			} else if (showcaseStep >= 0) {
 				ctx.ui.setWidget("cyber-showcase", [frame + currentFullMsg], { placement: "belowEditor" });
 			}
