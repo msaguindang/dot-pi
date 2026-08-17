@@ -696,6 +696,17 @@ export default function (pi: ExtensionAPI): void {
 		// summary-of-a-summary. previousRatio doesn't need the same treatment:
 		// it self-corrects on its own from the next message_end's usage read.
 		compactionDue = false;
+
+		// Only auto-continue for guardian-triggered compactions — customInstructions
+		// was passed, so the summary is steered to preserve in-progress task state.
+		// Pi's own threshold compaction has no customInstructions; summary quality
+		// is unknown — stop and wait for manual resume instead.
+		if (!ourCompactionInFlight) return;
+
+		pi.sendUserMessage(
+			"Compaction just ran mid-task and the turn was not auto-retried. Continue the task from exactly where the compaction summary left off, using the next step it recorded — do not re-derive context from scratch.",
+			{ deliverAs: "followUp" },
+		);
 	});
 
 	pi.on("turn_end", (_event, ctx) => {
