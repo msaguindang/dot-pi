@@ -25,13 +25,16 @@ export function isValidReviewMarker(cmd: string): boolean {
 // Strips heredoc bodies (`<<EOF ... EOF` / `<<'EOF' ... EOF`) before pattern
 // matching, so embedded documentation/review text (e.g. an ssh/rm -rf example,
 // or a "git commit" mention) isn't mistaken for a literal shell invocation.
+// The opener match doesn't require the delimiter to end the line — a trailing
+// redirect (`cat <<'EOF' > file`) still counts as an opener, matching the
+// `cat > file <<'EOF'` ordering that end-anchoring already handled.
 export function stripHeredocBodies(input: string): string {
   const lines = input.split("\n");
   const out: string[] = [];
   let delimiter: string | null = null;
   for (const line of lines) {
     if (delimiter === null) {
-      const m = line.match(/<<-?\s*['"]?(\w+)['"]?\s*$/);
+      const m = line.match(/<<-?\s*['"]?(\w+)['"]?/);
       if (m) {
         delimiter = m[1];
         out.push(line); // keep opener line
@@ -55,14 +58,49 @@ export function stripHeredocBodies(input: string): string {
 // (or spanning multiple physical lines within the quotes, e.g. a triple-quoted
 // Python string) that happens to contain the words "git commit"/"git push" as
 // prose rather than as an actual command.
-// ponytail: naive char-class scan — doesn't perfectly handle an escaped quote
-// nested inside the opposite quote style (e.g. "it's" inside single quotes
-// ends the string early). Good enough for the git-commit/push detector below;
-// revisit if that produces a real false negative.
+//
+// Single-pass stateful scan (not two independent global regexes) — bash
+// quoting is inherently sequential: which character closes a quoted region
+// depends on which quote type is currently open, not just "the next matching
+// character anywhere in the string". Two independent global regexes don't
+// track that: an apostrophe in earlier double-quoted prose (e.g. "here's the
+// fix") can pair with the opening `'` of a later, unrelated single-quoted
+// argument, silently merging two unrelated quoted regions and leaving
+// whatever's between their real boundaries — including a literal "git
+// commit" — unstripped. Confirmed live: `echo "here's the fix" && python3 -c
+// 'write_report("discussion: git commit boundary handling")'` survived
+// sanitization under the old two-regex approach.
 export function stripQuotedStrings(input: string): string {
-  return input
-    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
-    .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  let out = "";
+  let mode: "" | "'" | '"' = "";
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+    if (mode === "") {
+      if (ch === "'" || ch === '"') {
+        mode = ch;
+        out += ch;
+      } else {
+        out += ch;
+      }
+    } else if (mode === "'") {
+      // No escaping inside single quotes in real bash — a literal `'` is the
+      // only thing that closes the string; everything else is dropped as-is.
+      if (ch === "'") {
+        mode = "";
+        out += ch;
+      }
+    } else {
+      // Double-quoted: a backslash escapes the next character (so `\"`
+      // doesn't close the string early) and both are dropped together.
+      if (ch === "\\" && i + 1 < input.length) {
+        i++;
+      } else if (ch === '"') {
+        mode = "";
+        out += ch;
+      }
+    }
+  }
+  return out;
 }
 
 // Combined sanitizer for the git commit/push detector: strips heredoc bodies

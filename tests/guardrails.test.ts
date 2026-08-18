@@ -100,6 +100,19 @@ test("sanitizeForGitDetection - false positive: heredoc body mentioning git comm
   assert.strictEqual(/git\s+push/.test(sanitized), false);
 });
 
+test("sanitizeForGitDetection - false positive: heredoc marker followed by redirect on the same line", () => {
+  const cmd = `cat <<'EOF' > review.md\nRun git commit and git push once approved.\nEOF`;
+  const sanitized = sanitizeForGitDetection(cmd);
+  assert.strictEqual(/git\s+commit/.test(sanitized), false);
+  assert.strictEqual(/git\s+push/.test(sanitized), false);
+});
+
+test("sanitizeForGitDetection - false positive: apostrophe in earlier double-quoted prose no longer mis-pairs with a later single-quoted argument", () => {
+  const cmd = `echo "here's the fix" && python3 -c 'write_report("discussion: git commit boundary handling")'`;
+  const sanitized = sanitizeForGitDetection(cmd);
+  assert.strictEqual(/git\s+commit/.test(sanitized), false);
+});
+
 test("sanitizeForGitDetection - true positive: real git commit/push invocation still detected", () => {
   const commitCmd = `git commit -m "fix: something"`;
   const pushCmd = `git push origin main`;
@@ -109,6 +122,11 @@ test("sanitizeForGitDetection - true positive: real git commit/push invocation s
 
 test("sanitizeForGitDetection - true positive: real invocation survives even with a quoted commit message", () => {
   const cmd = `git commit -m "docs: mention git push in the changelog"`;
+  assert.strictEqual(/git\s+commit/.test(sanitizeForGitDetection(cmd)), true);
+});
+
+test("sanitizeForGitDetection - true positive: real commit with an apostrophe in the message is still detected", () => {
+  const cmd = `git commit -m "fix: don't drop the last chunk"`;
   assert.strictEqual(/git\s+commit/.test(sanitizeForGitDetection(cmd)), true);
 });
 
