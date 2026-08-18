@@ -401,18 +401,20 @@ cmd_init() {
     [[ -f "$prior_yaml" ]] && prior_build_id="$(prior_component_build_id "$prior_yaml" bundle_build_id)"
     [[ -n "$prior_build_id" ]] || prior_build_id="unknown"
 
-    # --- SERVER_BUILD_ID / UI_BUILD_ID: fresh unless --skip-*-build, in which
-    # case reuse the prior release's id (its artifact is still live at that
-    # prefix — nothing new to upload). Mirrors --skip-ui-build's existing
-    # "reuse the prior zip" behavior, extended to the S3 identity as well.
+    # --- SERVER_BUILD_ID / UI_BUILD_ID: freshness is decided by VERSION vs the
+    # prior stable release, not by --skip-*-build. That flag only means "don't
+    # re-run npm run build:prod, the zip's already on disk" (e.g. it was just
+    # built once for QA) — it says nothing about whether this version differs
+    # from the prior release. Conflating the two pointed a changed component
+    # at a stale S3 prefix that never got its new artifact uploaded.
     local SERVER_BUILD_ID="" UI_BUILD_ID=""
     local SERVER_ARTIFACT_FRESH UI_ARTIFACT_FRESH
 
-    if [[ "$SKIP_SERVER_BUILD" == "true" ]]; then
+    if [[ "$SERVER_VERSION" == "$ps_ver" ]]; then
         [[ -f "$prior_yaml" ]] && SERVER_BUILD_ID="$(prior_component_build_id "$prior_yaml" server_build_id)"
-        [[ -n "$SERVER_BUILD_ID" ]] || err "--skip-server-build: prior release $prior_release_dir has no server_build_id (or legacy build_id) to reuse — use --from-release to pick a release that shipped a server artifact."
+        [[ -n "$SERVER_BUILD_ID" ]] || err "server version $SERVER_VERSION matches prior stable but prior release $prior_release_dir has no server_build_id (or legacy build_id) to reuse — use --from-release to pick a release that shipped a server artifact."
         SERVER_ARTIFACT_FRESH=false
-        info "Reusing prior SERVER_BUILD_ID (server unchanged this release): $SERVER_BUILD_ID"
+        info "Reusing prior SERVER_BUILD_ID (server version unchanged: $SERVER_VERSION): $SERVER_BUILD_ID"
     else
         SERVER_BUILD_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')"
         if grep -rq "build_id: $SERVER_BUILD_ID" "$RELEASES_DIR"/*/release.yaml 2>/dev/null; then
@@ -421,11 +423,11 @@ cmd_init() {
         SERVER_ARTIFACT_FRESH=true
     fi
 
-    if [[ "$SKIP_UI_BUILD" == "true" ]]; then
+    if [[ "$UI_VERSION" == "$pu_ver" ]]; then
         [[ -f "$prior_yaml" ]] && UI_BUILD_ID="$(prior_component_build_id "$prior_yaml" ui_build_id)"
-        [[ -n "$UI_BUILD_ID" ]] || err "--skip-ui-build: prior release $prior_release_dir has no ui_build_id (or legacy build_id) to reuse — use --from-release to pick a release that shipped a UI artifact."
+        [[ -n "$UI_BUILD_ID" ]] || err "ui version $UI_VERSION matches prior stable but prior release $prior_release_dir has no ui_build_id (or legacy build_id) to reuse — use --from-release to pick a release that shipped a UI artifact."
         UI_ARTIFACT_FRESH=false
-        info "Reusing prior UI_BUILD_ID (UI unchanged this release): $UI_BUILD_ID"
+        info "Reusing prior UI_BUILD_ID (UI version unchanged: $UI_VERSION): $UI_BUILD_ID"
     else
         UI_BUILD_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')"
         if grep -rq "build_id: $UI_BUILD_ID" "$RELEASES_DIR"/*/release.yaml 2>/dev/null; then
@@ -470,10 +472,34 @@ cmd_init() {
     cp "$SERVER_ZIP" "$UI_ZIP" "$RELEASE_DIR/"
 
     # Seed device scripts from fleet-gitops templates and render them for this release.
+    # deploy-ntv-bundle.sh is always re-rendered (BUNDLE_BUILD_ID is always fresh).
+    # update-*-server.sh / update-*-ui.sh: a component marked NOT fresh means its
+    # artifact stays at the prior release's S3 prefix unchanged — its script must
+    # therefore be byte-identical to what's already live there, so copy the prior
+    # release's actual rendered file forward instead of re-deriving from today's
+    # template. Re-rendering from the current template here was a real bug: a
+    # template fix landed between releases produced a script that differed from
+    # the untouched S3 object it was supposed to match, and publish's post-upload
+    # checksum verification (correctly) refused to treat them as equivalent.
     local T="$GITOPS/player-apps/templates"
     [[ -f "$T/deploy-ntv-bundle.sh" ]] && cp "$T/deploy-ntv-bundle.sh" "$RELEASE_DIR/deploy-ntv-bundle.sh"
-    [[ -f "$T/update-server.sh"     ]] && cp "$T/update-server.sh"     "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
-    [[ -f "$T/update-ui.sh"         ]] && cp "$T/update-ui.sh"         "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
+
+    if [[ "$SERVER_ARTIFACT_FRESH" == "true" ]]; then
+        [[ -f "$T/update-server.sh" ]] && cp "$T/update-server.sh" "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
+    else
+        local prior_server_sh="$prior_release_dir/update-${SERVER_VERSION}-server.sh"
+        [[ -f "$prior_server_sh" ]] || err "server marked unchanged but prior release $prior_release_dir has no update-${SERVER_VERSION}-server.sh to reuse."
+        cp "$prior_server_sh" "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
+    fi
+
+    if [[ "$UI_ARTIFACT_FRESH" == "true" ]]; then
+        [[ -f "$T/update-ui.sh" ]] && cp "$T/update-ui.sh" "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
+    else
+        local prior_ui_sh="$prior_release_dir/update-${UI_VERSION}-ui.sh"
+        [[ -f "$prior_ui_sh" ]] || err "UI marked unchanged but prior release $prior_release_dir has no update-${UI_VERSION}-ui.sh to reuse."
+        cp "$prior_ui_sh" "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
+    fi
+
     # rollback-bundle.sh has no template; copy from the prior release dir as a base
     # (same prior_release_dir selected above — non-retired, newest by date).
     local prior_rb="$prior_release_dir/rollback-bundle.sh"
@@ -498,17 +524,21 @@ cmd_init() {
            -e "s/^readonly UI_BUILD_ID=.*/readonly UI_BUILD_ID=\"$UI_BUILD_ID\"/" \
            "$RELEASE_DIR/deploy-ntv-bundle.sh"
 
-    [[ -f "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh" ]] && sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$SERVER_VERSION\"/" \
-           -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$SERVER_VERSION\"/" \
-           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$SERVER_BUILD_ID\"/" \
-           -e "s|/player-server-[0-9\.]*\.zip|/player-server-${SERVER_VERSION}.zip|" \
-           "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
+    if [[ "$SERVER_ARTIFACT_FRESH" == "true" && -f "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh" ]]; then
+        sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$SERVER_VERSION\"/" \
+               -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$SERVER_VERSION\"/" \
+               -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$SERVER_BUILD_ID\"/" \
+               -e "s|/player-server-[0-9\.]*\.zip|/player-server-${SERVER_VERSION}.zip|" \
+               "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
+    fi
 
-    [[ -f "$RELEASE_DIR/update-${UI_VERSION}-ui.sh" ]] && sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$UI_VERSION\"/" \
-           -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$UI_VERSION\"/" \
-           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$UI_BUILD_ID\"/" \
-           -e "s|/player-ui-[0-9\.]*\.zip|/player-ui-${UI_VERSION}.zip|" \
-           "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
+    if [[ "$UI_ARTIFACT_FRESH" == "true" && -f "$RELEASE_DIR/update-${UI_VERSION}-ui.sh" ]]; then
+        sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$UI_VERSION\"/" \
+               -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$UI_VERSION\"/" \
+               -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$UI_BUILD_ID\"/" \
+               -e "s|/player-ui-[0-9\.]*\.zip|/player-ui-${UI_VERSION}.zip|" \
+               "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
+    fi
 
     # NOTE (pre-existing, not introduced by the build-id split): rollback-bundle.sh
     # has no template of its own — it's copied forward from the prior release dir
