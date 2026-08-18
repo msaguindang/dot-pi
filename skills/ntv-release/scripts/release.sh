@@ -3,19 +3,32 @@
 # release.sh — ntv-release orchestrator (ritual steps 4–7)
 # =============================================================================
 # Two phases, because device update scripts must be hand-adapted between
-# BUILD_ID generation and upload (they embed the BUILD_ID in their S3 URLs):
+# build-id generation and upload (they embed their build id in their S3 URLs):
 #
 #   release.sh init    --server-version X.Y.Z --ui-version A.B.C [options]
-#       Preflight, prod builds, fresh UUID BUILD_ID, prior-stable detection,
-#       creates the fleet-gitops release directory with release.yaml,
-#       rollback.md, verification.md, copies zips + script templates in.
+#       Preflight, prod builds, prior-stable detection, creates the
+#       fleet-gitops release directory with release.yaml, rollback.md,
+#       verification.md, copies zips + script templates in.
+#
+#       Mints THREE independent build ids (not one shared BUILD_ID), so a
+#       release that only changes one component doesn't force the unchanged
+#       component's devices to redundantly re-download it:
+#         - BUNDLE_BUILD_ID  — always fresh. Identifies where deploy-ntv-bundle.sh
+#                              and rollback-bundle.sh live (the orchestrator is
+#                              re-adapted every release regardless of scope).
+#         - SERVER_BUILD_ID  — fresh unless --skip-server-build, in which case
+#                              it's the PRIOR release's server_build_id (the
+#                              prior artifact is still live at that prefix —
+#                              nothing new to upload).
+#         - UI_BUILD_ID      — same pattern, mirrored for player-ui.
 #
 #   (agent/human adapts deploy-ntv-bundle.sh, update-*.sh, rollback-bundle.sh
-#    in the release dir — embed BUILD_ID, versions, per deploy-script-standard)
+#    in the release dir — embed the build ids, versions, per deploy-script-standard)
 #
 #   release.sh publish <release-dir> [--execute]
 #       bash -n all scripts, gen checksums, local validation, S3 upload
-#       (immutability-guarded), S3 verify, git commit + push to both remotes.
+#       (immutability-guarded per fresh prefix; reused prefixes are verified
+#       present, not re-uploaded), S3 verify, git commit + push to both remotes.
 #       DRY-RUN unless --execute.
 #
 # init options:
@@ -26,18 +39,22 @@
 #   --ui-repo PATH             default /data/dev/work/ntv/player-ui
 #   --gitops PATH              default /data/dev/work/ntv/fleet-gitops (or $NTV_GITOPS)
 #   --skip-server-build        reuse existing builds/player-server-X.Y.Z.zip
+#                              AND reuse the prior release's SERVER_BUILD_ID
+#                              (nothing server-side is uploaded this release)
 #   --skip-ui-build            reuse existing builds/player-ui-A.B.C.zip
+#                              AND reuse the prior release's UI_BUILD_ID
 #                              (server-only patch: UI zip from prior release)
 #   --prior-server REF         override prior-stable server tag/version
 #   --prior-ui REF             override prior-stable UI tag/version
 #   --from-release RELEASE_ID  override auto-detected prior release directory
 #                              (bypasses lifecycle-status auto-detection entirely;
 #                              RELEASE_ID is a dir name under player-apps/releases)
-#   --build-id UUID            REUSE an existing BUILD_ID. Only legal for the
-#                              staged-never-fetched overwrite exception; needs
-#                              --confirm-staged-overwrite AND an interactive
-#                              typed confirmation. Never use this without
-#                              explicit human sign-off.
+#   --build-id UUID            REUSE an existing BUNDLE_BUILD_ID (bundle prefix
+#                              only — SERVER_BUILD_ID/UI_BUILD_ID are unaffected).
+#                              Only legal for the staged-never-fetched overwrite
+#                              exception; needs --confirm-staged-overwrite AND
+#                              an interactive typed confirmation. Never use this
+#                              without explicit human sign-off.
 #   --confirm-staged-overwrite required companion to --build-id
 # =============================================================================
 set -euo pipefail
@@ -100,34 +117,79 @@ render() { # render <template> <out> KEY=VALUE...
     fi
 }
 
-get_build_id() {
-    local yaml_file="$1"
-    local build_ids num_matches build_id
-    build_ids=$(awk '
+# Best-effort scalar lookup under the top-level s3: block. Prints nothing
+# (not an error) on missing/duplicate/empty — callers that need strictness
+# check the count themselves (get_s3_id/get_s3_bool); callers reading a PRIOR
+# release (which may still be in the old single-build_id schema) chain
+# fallbacks instead (prior_component_build_id).
+s3_field_matches() { # s3_field_matches <yaml-file> <field-name> -> 0+ lines
+    local yaml_file="$1" field="$2"
+    awk -v field="$field" '
       /^s3:[ \t]*(#.*)?$/ { in_s3 = 1; next }
       /^[a-zA-Z0-9_-]+:/ { in_s3 = 0 }
-      in_s3 && /^[ \t]+build_id:[ \t]+/ {
+      in_s3 && $0 ~ "^[ \t]+" field ":[ \t]+" {
         val = $0
-        sub(/^[ \t]+build_id:[ \t]+/, "", val)
+        sub("^[ \t]+" field ":[ \t]+", "", val)
         sub(/[ \t]*(#.*)?$/, "", val)
         gsub(/^"|"$|^'\''|'\''$/, "", val)
         if (val != "") print val
       }
-    ' "$yaml_file")
-    num_matches=$(echo "$build_ids" | awk 'NF' | wc -l | tr -d ' ')
+    ' "$yaml_file" 2>/dev/null
+}
+
+probe_s3_field() { # probe_s3_field <yaml-file> <field-name> -> single value or empty
+    local -a vals=()
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && vals+=("$line")
+    done < <(s3_field_matches "$1" "$2")
+    [[ "${#vals[@]}" -eq 1 ]] && echo "${vals[0]}"
+    return 0
+}
+
+# Strict getter for a required UUID field. Used against OUR OWN generated
+# release.yaml (cmd_publish), where a missing/duplicate/malformed value must
+# hard-fail rather than silently fall back.
+get_s3_id() { # get_s3_id <yaml-file> <field-name> -> UUID
+    local yaml_file="$1" field="$2" matches num_matches val
+    matches="$(s3_field_matches "$yaml_file" "$field")"
+    num_matches=$(echo "$matches" | awk 'NF' | wc -l | tr -d ' ')
     if [[ "$num_matches" -eq 0 ]]; then
-        echo "ERROR: missing s3.build_id in $yaml_file" >&2
+        echo "ERROR: missing s3.$field in $yaml_file" >&2
         exit 1
     elif [[ "$num_matches" -gt 1 ]]; then
-        echo "ERROR: duplicate s3.build_id in $yaml_file" >&2
+        echo "ERROR: duplicate s3.$field in $yaml_file" >&2
         exit 1
     fi
-    build_id=$(echo "$build_ids" | awk 'NF')
-    if ! [[ "$build_id" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
-        echo "ERROR: malformed s3.build_id in $yaml_file: $build_id" >&2
+    val=$(echo "$matches" | awk 'NF')
+    if ! [[ "$val" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$ ]]; then
+        echo "ERROR: malformed s3.$field in $yaml_file: $val" >&2
         exit 1
     fi
-    echo "$build_id"
+    echo "$val"
+}
+
+# Strict getter for a required boolean field (server_artifact_fresh / ui_artifact_fresh).
+get_s3_bool() { # get_s3_bool <yaml-file> <field-name> -> true|false
+    local yaml_file="$1" field="$2" val
+    val="$(probe_s3_field "$yaml_file" "$field")"
+    if [[ "$val" != "true" && "$val" != "false" ]]; then
+        echo "ERROR: missing/duplicate/non-boolean s3.$field in $yaml_file: '$val'" >&2
+        exit 1
+    fi
+    echo "$val"
+}
+
+# Reads a component build id from a PRIOR release's release.yaml for the
+# --skip-*-build reuse path. Tries the new per-component field first, then
+# falls back to the legacy shared s3.build_id (releases cut before this
+# 3-id split used one BUILD_ID for everything, so it's a valid reuse source
+# for either component). Empty output means neither was found.
+prior_component_build_id() { # prior_component_build_id <yaml-file> <field-name> -> value or empty
+    local yaml_file="$1" field="$2" val
+    val="$(probe_s3_field "$yaml_file" "$field")"
+    [[ -n "$val" ]] && { echo "$val"; return 0; }
+    probe_s3_field "$yaml_file" "build_id"
 }
 
 # --- prior-stable detection --------------------------------------------------
@@ -232,7 +294,7 @@ cmd_init() {
     local SKIP_SERVER_BUILD=false SKIP_UI_BUILD=false
     local PRIOR_SERVER_OVERRIDE="" PRIOR_UI_OVERRIDE=""
     local FROM_RELEASE=""
-    local BUILD_ID="" CONFIRM_OVERWRITE=false
+    local BUNDLE_BUILD_ID="" CONFIRM_OVERWRITE=false
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -247,7 +309,7 @@ cmd_init() {
             --prior-server)   PRIOR_SERVER_OVERRIDE="${2:?}"; shift 2 ;;
             --prior-ui)       PRIOR_UI_OVERRIDE="${2:?}"; shift 2 ;;
             --from-release)   FROM_RELEASE="${2:?}"; shift 2 ;;
-            --build-id)       BUILD_ID="${2:?}"; shift 2 ;;
+            --build-id)       BUNDLE_BUILD_ID="${2:?}"; shift 2 ;;
             --confirm-staged-overwrite) CONFIRM_OVERWRITE=true; shift ;;
             *) err "init: unknown option $1" ;;
         esac
@@ -263,11 +325,13 @@ cmd_init() {
 
     local RELEASES_DIR="$GITOPS/player-apps/releases"
 
-    # --- BUILD_ID: fresh UUID; reuse only via the guarded staged-overwrite path
-    if [[ -n "$BUILD_ID" ]]; then
-        [[ "$CONFIRM_OVERWRITE" == "true" ]] || err "--build-id reuse requires --confirm-staged-overwrite. HARD RULE: live BUILD_ID folders are immutable. Reuse is legal ONLY for a staged release no device has ever fetched — a human must verify deployment-manifest.json on all devices and explicitly approve."
+    # --- BUNDLE_BUILD_ID: fresh UUID; reuse only via the guarded staged-overwrite
+    # path. Always fresh otherwise — the bundle orchestrator is re-adapted every
+    # release regardless of which component(s) actually changed.
+    if [[ -n "$BUNDLE_BUILD_ID" ]]; then
+        [[ "$CONFIRM_OVERWRITE" == "true" ]] || err "--build-id reuse requires --confirm-staged-overwrite. HARD RULE: live build-id folders are immutable. Reuse is legal ONLY for a staged release no device has ever fetched — a human must verify deployment-manifest.json on all devices and explicitly approve."
         echo ""
-        echo "!!! STAGED-OVERWRITE EXCEPTION REQUESTED for BUILD_ID $BUILD_ID"
+        echo "!!! STAGED-OVERWRITE EXCEPTION REQUESTED for BUNDLE_BUILD_ID $BUNDLE_BUILD_ID"
         echo "!!! Preconditions the HUMAN must have verified (this script cannot):"
         echo "!!!   - release status is 'staged' in its release.yaml"
         echo "!!!   - NO device has fetched it (deployment-manifest.json on all devices)"
@@ -276,10 +340,13 @@ cmd_init() {
         read -r -p "Type OVERWRITE-STAGED to proceed: " reply
         [[ "$reply" == "OVERWRITE-STAGED" ]] || err "confirmation not given — aborting."
     else
-        BUILD_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')"
+        BUNDLE_BUILD_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')"
         # Never reuse: refuse any UUID already recorded in fleet-gitops releases.
-        if grep -rq "build_id: $BUILD_ID" "$RELEASES_DIR"/*/release.yaml 2>/dev/null; then
-            err "generated BUILD_ID collides with an existing release ($BUILD_ID) — rerun."
+        # The substring match "build_id: $ID" also catches collisions against
+        # bundle_build_id/server_build_id/ui_build_id (each ends in "build_id: ")
+        # and the legacy single build_id field, so one check covers every schema.
+        if grep -rq "build_id: $BUNDLE_BUILD_ID" "$RELEASES_DIR"/*/release.yaml 2>/dev/null; then
+            err "generated BUNDLE_BUILD_ID collides with an existing release ($BUNDLE_BUILD_ID) — rerun."
         fi
     fi
 
@@ -329,8 +396,43 @@ cmd_init() {
         [[ -n "$prior_release_dir" ]] || err "no valid prior release found (all releases are rolled-back/superseded, or none exist) — use --from-release to specify one explicitly"
     fi
 
-    local prior_build_id="unknown" prior_yaml="$prior_release_dir/release.yaml"
-    [[ -f "$prior_yaml" ]] && prior_build_id="$(grep -E '^\s*build_id:' "$prior_yaml" | head -1 | awk '{print $2}')"
+    local prior_yaml="$prior_release_dir/release.yaml"
+    local prior_build_id="unknown"
+    [[ -f "$prior_yaml" ]] && prior_build_id="$(prior_component_build_id "$prior_yaml" bundle_build_id)"
+    [[ -n "$prior_build_id" ]] || prior_build_id="unknown"
+
+    # --- SERVER_BUILD_ID / UI_BUILD_ID: fresh unless --skip-*-build, in which
+    # case reuse the prior release's id (its artifact is still live at that
+    # prefix — nothing new to upload). Mirrors --skip-ui-build's existing
+    # "reuse the prior zip" behavior, extended to the S3 identity as well.
+    local SERVER_BUILD_ID="" UI_BUILD_ID=""
+    local SERVER_ARTIFACT_FRESH UI_ARTIFACT_FRESH
+
+    if [[ "$SKIP_SERVER_BUILD" == "true" ]]; then
+        [[ -f "$prior_yaml" ]] && SERVER_BUILD_ID="$(prior_component_build_id "$prior_yaml" server_build_id)"
+        [[ -n "$SERVER_BUILD_ID" ]] || err "--skip-server-build: prior release $prior_release_dir has no server_build_id (or legacy build_id) to reuse — use --from-release to pick a release that shipped a server artifact."
+        SERVER_ARTIFACT_FRESH=false
+        info "Reusing prior SERVER_BUILD_ID (server unchanged this release): $SERVER_BUILD_ID"
+    else
+        SERVER_BUILD_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')"
+        if grep -rq "build_id: $SERVER_BUILD_ID" "$RELEASES_DIR"/*/release.yaml 2>/dev/null; then
+            err "generated SERVER_BUILD_ID collides with an existing release ($SERVER_BUILD_ID) — rerun."
+        fi
+        SERVER_ARTIFACT_FRESH=true
+    fi
+
+    if [[ "$SKIP_UI_BUILD" == "true" ]]; then
+        [[ -f "$prior_yaml" ]] && UI_BUILD_ID="$(prior_component_build_id "$prior_yaml" ui_build_id)"
+        [[ -n "$UI_BUILD_ID" ]] || err "--skip-ui-build: prior release $prior_release_dir has no ui_build_id (or legacy build_id) to reuse — use --from-release to pick a release that shipped a UI artifact."
+        UI_ARTIFACT_FRESH=false
+        info "Reusing prior UI_BUILD_ID (UI unchanged this release): $UI_BUILD_ID"
+    else
+        UI_BUILD_ID="$(uuidgen 2>/dev/null || python3 -c 'import uuid; print(uuid.uuid4())')"
+        if grep -rq "build_id: $UI_BUILD_ID" "$RELEASES_DIR"/*/release.yaml 2>/dev/null; then
+            err "generated UI_BUILD_ID collides with an existing release ($UI_BUILD_ID) — rerun."
+        fi
+        UI_ARTIFACT_FRESH=true
+    fi
 
     # --- create release directory ----------------------------------------------
     local DATE RELEASE_ID RELEASE_DIR
@@ -352,10 +454,11 @@ cmd_init() {
         "SERVER_VERSION=$SERVER_VERSION" "UI_VERSION=$UI_VERSION" \
         "SERVER_BRANCH=$server_branch" "UI_BRANCH=$ui_branch" \
         "SERVER_COMMIT=$server_commit" "UI_COMMIT=$ui_commit" \
-        "BUILD_ID=$BUILD_ID"
+        "BUNDLE_BUILD_ID=$BUNDLE_BUILD_ID" "SERVER_BUILD_ID=$SERVER_BUILD_ID" "UI_BUILD_ID=$UI_BUILD_ID" \
+        "SERVER_ARTIFACT_FRESH=$SERVER_ARTIFACT_FRESH" "UI_ARTIFACT_FRESH=$UI_ARTIFACT_FRESH"
 
     render "$SKILL_DIR/templates/rollback-md-template.md" "$RELEASE_DIR/rollback.md" \
-        "RELEASE_ID=$RELEASE_ID" "BUILD_ID=$BUILD_ID" \
+        "RELEASE_ID=$RELEASE_ID" "BUNDLE_BUILD_ID=$BUNDLE_BUILD_ID" \
         "SERVER_VERSION=$SERVER_VERSION" "UI_VERSION=$UI_VERSION" \
         "PRIOR_SERVER_VERSION=$ps_ver" "PRIOR_UI_VERSION=$pu_ver" \
         "PRIOR_SERVER_REF=$ps_ref @ ${ps_commit:-?}" "PRIOR_UI_REF=$pu_ref @ ${pu_commit:-?}" \
@@ -383,27 +486,41 @@ cmd_init() {
         sed -i '/^# TEMPLATE/d' "$sh"
     done
 
-    # Substitute variables
+    # Substitute variables. deploy-ntv-bundle.sh carries all three build ids
+    # (it builds S3 URLs for itself AND both component scripts); the two
+    # component scripts each keep a single BUILD_ID const, fed their own
+    # respective id (SERVER_BUILD_ID / UI_BUILD_ID) — no split needed within
+    # a single-component script, only across the three files as a whole.
     [[ -f "$RELEASE_DIR/deploy-ntv-bundle.sh" ]] && sed -i -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$SERVER_VERSION\"/" \
            -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$UI_VERSION\"/" \
-           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUILD_ID\"/" \
+           -e "s/^readonly BUNDLE_BUILD_ID=.*/readonly BUNDLE_BUILD_ID=\"$BUNDLE_BUILD_ID\"/" \
+           -e "s/^readonly SERVER_BUILD_ID=.*/readonly SERVER_BUILD_ID=\"$SERVER_BUILD_ID\"/" \
+           -e "s/^readonly UI_BUILD_ID=.*/readonly UI_BUILD_ID=\"$UI_BUILD_ID\"/" \
            "$RELEASE_DIR/deploy-ntv-bundle.sh"
 
     [[ -f "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh" ]] && sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$SERVER_VERSION\"/" \
            -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$SERVER_VERSION\"/" \
-           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUILD_ID\"/" \
+           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$SERVER_BUILD_ID\"/" \
            -e "s|/player-server-[0-9\.]*\.zip|/player-server-${SERVER_VERSION}.zip|" \
            "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
 
     [[ -f "$RELEASE_DIR/update-${UI_VERSION}-ui.sh" ]] && sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$UI_VERSION\"/" \
            -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$UI_VERSION\"/" \
-           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUILD_ID\"/" \
+           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$UI_BUILD_ID\"/" \
            -e "s|/player-ui-[0-9\.]*\.zip|/player-ui-${UI_VERSION}.zip|" \
            "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
 
+    # NOTE (pre-existing, not introduced by the build-id split): rollback-bundle.sh
+    # has no template of its own — it's copied forward from the prior release dir
+    # (see prior_rb above) and its actual variable names are SERVER_ROLLBACK_VERSION /
+    # SERVER_FROM_VERSION / UI_ROLLBACK_VERSION / UI_FROM_VERSION / ROLLBACK_BUILD_ID,
+    # not SERVER_VERSION/UI_VERSION/BUILD_ID — so this sed has never actually matched
+    # anything; ROLLBACK_BUILD_ID has always just carried forward whatever the prior
+    # release's rollback-bundle.sh had. Left as-is (same no-op behavior as before the
+    # build-id split) rather than fixed here — that's a separate, unrelated bug.
     [[ -f "$RELEASE_DIR/rollback-bundle.sh" ]] && sed -i -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$ps_ver\"/" \
            -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$pu_ver\"/" \
-           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$prior_build_id\"/" \
+           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUNDLE_BUILD_ID\"/" \
            "$RELEASE_DIR/rollback-bundle.sh"
 
     info "Generating checksums..."
@@ -412,11 +529,16 @@ cmd_init() {
     cat <<EOF
 
 === init complete ===
-RELEASE_ID:  $RELEASE_ID
-BUILD_ID:    $BUILD_ID
-Release dir: $RELEASE_DIR
-Fix branch:  ${FIX_BRANCH:-"(not recorded)"}
-S3 target:   s3://$S3_BUCKET/secure-rc/$BUILD_ID/   (nothing uploaded yet)
+RELEASE_ID:       $RELEASE_ID
+BUNDLE_BUILD_ID:  $BUNDLE_BUILD_ID   (always fresh)
+SERVER_BUILD_ID:  $SERVER_BUILD_ID   (fresh=$SERVER_ARTIFACT_FRESH)
+UI_BUILD_ID:      $UI_BUILD_ID   (fresh=$UI_ARTIFACT_FRESH)
+Release dir:      $RELEASE_DIR
+Fix branch:       ${FIX_BRANCH:-"(not recorded)"}
+S3 targets (nothing uploaded yet):
+  bundle: s3://$S3_BUCKET/secure-rc/$BUNDLE_BUILD_ID/
+  server: s3://$S3_BUCKET/secure-rc/$SERVER_BUILD_ID/$( [[ "$SERVER_ARTIFACT_FRESH" == "false" ]] && echo "  (reused — already live, will not be re-uploaded)" )
+  ui:     s3://$S3_BUCKET/secure-rc/$UI_BUILD_ID/$( [[ "$UI_ARTIFACT_FRESH" == "false" ]] && echo "  (reused — already live, will not be re-uploaded)" )
 
 NEXT (before publish) — review generated scripts:
   1. deploy-ntv-bundle.sh
@@ -429,6 +551,42 @@ Validate, review, and commit the non-ZIP release record (including checksums.sha
 Then:  release.sh publish "$RELEASE_DIR"            (dry-run)
        release.sh publish "$RELEASE_DIR" --execute  (validate, upload, verify, and push)
 EOF
+}
+
+# =============================================================================
+# PUBLISH HELPERS — per-prefix immutability guard / reuse-presence check / upload
+# =============================================================================
+
+# Refuses to upload into a non-empty live prefix. Used for every prefix that's
+# fresh this release (bundle always; server/ui when their id was freshly minted).
+guard_prefix_empty() { # guard_prefix_empty <s3-dest-with-trailing-slash>
+    local dest="$1"
+    if aws s3 ls "$dest" 2>/dev/null | grep -q .; then
+        err "S3 prefix $dest is NOT empty. Live build-id folders are immutable — a new fix means a new UUID. (Staged-never-fetched overwrite goes through 'init --build-id --confirm-staged-overwrite' with human sign-off, then delete the stale objects manually before publish.)"
+    fi
+}
+
+# For a REUSED component (its id was carried forward from the prior release,
+# nothing new to upload), verify the expected files are actually already live
+# at that prefix — a reuse claim pointing at a dangling prefix would leave
+# devices 404ing on that component.
+verify_prefix_has() { # verify_prefix_has <s3-dest-with-trailing-slash> <file>...
+    local dest="$1"; shift
+    local listing; listing="$(aws s3 ls "$dest" 2>/dev/null || true)"
+    local file
+    for file in "$@"; do
+        grep -q " ${file}\$" <<< "$listing" \
+            || err "Reused prefix $dest is missing $file — this component was marked unchanged (*_artifact_fresh: false) but its prior artifact isn't actually there. Re-run init without --skip-*-build, or point --from-release at a release that actually shipped it."
+    done
+}
+
+upload_group() { # upload_group <s3-dest-with-trailing-slash> <file>...
+    local dest="$1" release_dir="$2"; shift 2
+    local file
+    for file in "$@"; do
+        info "Uploading $file -> $dest"
+        aws s3 cp "$release_dir/$file" "$dest$file" || err "upload failed: $file"
+    done
 }
 
 # =============================================================================
@@ -447,10 +605,16 @@ cmd_publish() {
     RELEASE_DIR="$(cd "$RELEASE_DIR" && pwd)"
     local RELEASE_ID; RELEASE_ID="$(basename "$RELEASE_DIR")"
 
-    local BUILD_ID
-    BUILD_ID="$(get_build_id "$RELEASE_DIR/release.yaml")" || err "failed to parse s3.build_id"
+    local RYAML="$RELEASE_DIR/release.yaml"
+    local BUNDLE_BUILD_ID SERVER_BUILD_ID UI_BUILD_ID SERVER_FRESH UI_FRESH
+    BUNDLE_BUILD_ID="$(get_s3_id "$RYAML" bundle_build_id)" || err "failed to parse s3.bundle_build_id"
+    SERVER_BUILD_ID="$(get_s3_id "$RYAML" server_build_id)" || err "failed to parse s3.server_build_id"
+    UI_BUILD_ID="$(get_s3_id "$RYAML" ui_build_id)" || err "failed to parse s3.ui_build_id"
+    SERVER_FRESH="$(get_s3_bool "$RYAML" server_artifact_fresh)" || err "failed to parse s3.server_artifact_fresh"
+    UI_FRESH="$(get_s3_bool "$RYAML" ui_artifact_fresh)" || err "failed to parse s3.ui_artifact_fresh"
 
-    # 1. bash -n every script (also re-checked by the validator)
+    # 1. bash -n every script (also re-checked by the validator), each checked
+    # against the build id its own S3 URLs should embed.
     local sh
     for sh in "$RELEASE_DIR"/*.sh; do
         [[ -f "$sh" ]] || continue
@@ -459,7 +623,17 @@ cmd_publish() {
         if head -3 "$sh" | grep -q '^# TEMPLATE'; then
             err "$(basename "$sh") still carries the TEMPLATE header — adapt it before publishing."
         fi
-        grep -q "$BUILD_ID" "$sh" || info "WARN: $(basename "$sh") does not reference BUILD_ID $BUILD_ID — verify its S3 URLs."
+        case "$(basename "$sh")" in
+            deploy-ntv-bundle.sh|rollback-bundle.sh)
+                grep -q "$BUNDLE_BUILD_ID" "$sh" || info "WARN: $(basename "$sh") does not reference BUNDLE_BUILD_ID $BUNDLE_BUILD_ID — verify its S3 URLs."
+                ;;
+            update-*-server.sh)
+                grep -q "$SERVER_BUILD_ID" "$sh" || info "WARN: $(basename "$sh") does not reference SERVER_BUILD_ID $SERVER_BUILD_ID — verify its S3 URLs."
+                ;;
+            update-*-ui.sh)
+                grep -q "$UI_BUILD_ID" "$sh" || info "WARN: $(basename "$sh") does not reference UI_BUILD_ID $UI_BUILD_ID — verify its S3 URLs."
+                ;;
+        esac
     done
 
     # 2. verify checksums
@@ -482,17 +656,51 @@ cmd_publish() {
     # 3. local validation (files, checksums, yaml, bash -n)
     bash "$SKILL_DIR/scripts/validate-release.sh" "$RELEASE_DIR" --local-only --gitops "$GITOPS"
 
-    # Upload set: everything checksummed + checksums.sha256
-    local -a FILES=()
-    while IFS= read -r f; do FILES+=("$f"); done < <(awk '{print $2}' "$RELEASE_DIR/checksums.sha256")
-    FILES+=("checksums.sha256")
-    local S3_DEST="s3://$S3_BUCKET/secure-rc/$BUILD_ID/"
+    # --- group checksummed local files by component -----------------------------
+    # Local checksums.sha256 always covers every local file regardless of
+    # freshness (it's the offline integrity record). Only FRESH components get
+    # uploaded/checked against an empty prefix; a REUSED component's files stay
+    # local-only (they're already live at the prior release's prefix) but are
+    # still verified present there before publish completes.
+    local -a ALL_FILES=()
+    while IFS= read -r f; do ALL_FILES+=("$f"); done < <(awk '{print $2}' "$RELEASE_DIR/checksums.sha256")
+
+    local -a BUNDLE_FILES=() SERVER_FILES=() UI_FILES=()
+    local f
+    for f in "${ALL_FILES[@]}"; do
+        case "$f" in
+            deploy-ntv-bundle.sh|rollback-bundle.sh) BUNDLE_FILES+=("$f") ;;
+            update-*-server.sh|player-server-*.zip)  SERVER_FILES+=("$f") ;;
+            update-*-ui.sh|player-ui-*.zip)          UI_FILES+=("$f") ;;
+            *) err "unrecognized checksummed file — cannot classify by component: $f" ;;
+        esac
+    done
+    # checksums.sha256 itself always ships alongside the (always-fresh) bundle.
+    BUNDLE_FILES+=("checksums.sha256")
+
+    local S3_BUNDLE_DEST="s3://$S3_BUCKET/secure-rc/$BUNDLE_BUILD_ID/"
+    local S3_SERVER_DEST="s3://$S3_BUCKET/secure-rc/$SERVER_BUILD_ID/"
+    local S3_UI_DEST="s3://$S3_BUCKET/secure-rc/$UI_BUILD_ID/"
 
     if [[ "$EXECUTE" == "false" ]]; then
         echo ""
         echo "=== DRY RUN — nothing uploaded, nothing pushed ==="
-        echo "Would upload to $S3_DEST:"
-        printf '  %s\n' "${FILES[@]}"
+        echo "Bundle (always fresh) -> $S3_BUNDLE_DEST"
+        printf '  %s\n' "${BUNDLE_FILES[@]}"
+        if [[ "$SERVER_FRESH" == "true" ]]; then
+            echo "Server (fresh this release) -> $S3_SERVER_DEST"
+            printf '  %s\n' "${SERVER_FILES[@]}"
+        else
+            echo "Server (unchanged — REUSING prior prefix, would verify present, NOT re-uploaded) -> $S3_SERVER_DEST"
+            printf '  %s\n' "${SERVER_FILES[@]}"
+        fi
+        if [[ "$UI_FRESH" == "true" ]]; then
+            echo "UI (fresh this release) -> $S3_UI_DEST"
+            printf '  %s\n' "${UI_FILES[@]}"
+        else
+            echo "UI (unchanged — REUSING prior prefix, would verify present, NOT re-uploaded) -> $S3_UI_DEST"
+            printf '  %s\n' "${UI_FILES[@]}"
+        fi
         echo "Would verify and push existing HEAD to fleet-gitops (origin + forgejo)."
         echo "Re-run with --execute to perform."
         return 0
@@ -500,17 +708,24 @@ cmd_publish() {
 
     command -v aws >/dev/null 2>&1 || err "aws CLI not found."
 
-    # 4. Immutability guard: refuse upload into a non-empty live prefix.
-    if aws s3 ls "$S3_DEST" 2>/dev/null | grep -q .; then
-        err "S3 prefix $S3_DEST is NOT empty. Live BUILD_ID folders are immutable — a new fix means a new UUID. (Staged-never-fetched overwrite goes through 'init --build-id --confirm-staged-overwrite' with human sign-off, then delete the stale objects manually before publish.)"
+    # 4. Immutability guard for fresh prefixes; presence check for reused ones.
+    guard_prefix_empty "$S3_BUNDLE_DEST"
+    if [[ "$SERVER_FRESH" == "true" ]]; then
+        guard_prefix_empty "$S3_SERVER_DEST"
+    else
+        verify_prefix_has "$S3_SERVER_DEST" "${SERVER_FILES[@]}"
+    fi
+    if [[ "$UI_FRESH" == "true" ]]; then
+        guard_prefix_empty "$S3_UI_DEST"
+    else
+        verify_prefix_has "$S3_UI_DEST" "${UI_FILES[@]}"
     fi
 
-    # 5. Upload + verify round trip
-    local f
-    for f in "${FILES[@]}"; do
-        info "Uploading $f"
-        aws s3 cp "$RELEASE_DIR/$f" "$S3_DEST$f" || err "upload failed: $f"
-    done
+    # 5. Upload only what's fresh + verify round trip
+    upload_group "$S3_BUNDLE_DEST" "$RELEASE_DIR" "${BUNDLE_FILES[@]}"
+    [[ "$SERVER_FRESH" == "true" ]] && upload_group "$S3_SERVER_DEST" "$RELEASE_DIR" "${SERVER_FILES[@]}"
+    [[ "$UI_FRESH"     == "true" ]] && upload_group "$S3_UI_DEST" "$RELEASE_DIR" "${UI_FILES[@]}"
+
     bash "$SKILL_DIR/scripts/validate-release.sh" "$RELEASE_DIR" --gitops "$GITOPS" \
         || err "post-upload validation failed."
 
@@ -532,12 +747,16 @@ cmd_publish() {
     cat <<EOF
 
 === publish complete ===
-RELEASE_ID: $RELEASE_ID
-BUILD_ID:   $BUILD_ID
-S3:         $S3_DEST
-Record:     $RELEASE_DIR/release.yaml
-Checksums:  $RELEASE_DIR/checksums.sha256
-Evidence:   /tmp/validate-$BUILD_ID.log
+RELEASE_ID:      $RELEASE_ID
+BUNDLE_BUILD_ID: $BUNDLE_BUILD_ID
+SERVER_BUILD_ID: $SERVER_BUILD_ID   (fresh=$SERVER_FRESH)
+UI_BUILD_ID:     $UI_BUILD_ID   (fresh=$UI_FRESH)
+S3 bundle:       $S3_BUNDLE_DEST
+S3 server:       $S3_SERVER_DEST$( [[ "$SERVER_FRESH" == "false" ]] && echo "  (reused, not re-uploaded)" )
+S3 ui:           $S3_UI_DEST$( [[ "$UI_FRESH" == "false" ]] && echo "  (reused, not re-uploaded)" )
+Record:          $RELEASE_DIR/release.yaml
+Checksums:       $RELEASE_DIR/checksums.sha256
+Evidence:        /tmp/validate-$BUNDLE_BUILD_ID.log
 Next: ritual step 9 (review), then deploy to test device before any fleet rollout.
 EOF
 }

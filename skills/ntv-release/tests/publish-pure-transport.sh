@@ -10,7 +10,7 @@ HELPER_SH="$TEST_DIR/helper.sh"
 cat <<EOF > "$HELPER_SH"
 #!/usr/bin/env bash
 source "$RELEASE_SH"
-get_build_id "\$1"
+get_s3_id "\$1" build_id
 EOF
 chmod +x "$HELPER_SH"
 HELPER="$HELPER_SH"
@@ -102,16 +102,23 @@ REL_DIR="$GITOPS/player-apps/releases/$REL_ID"
 mkdir -p "$REL_DIR"
 cat <<EOF > "$REL_DIR/release.yaml"
 s3:
-  build_id: "12345678-1234-1234-1234-123456789012"
+  bundle_build_id: "12345678-1234-1234-1234-123456789012"
+  server_build_id: "22345678-1234-1234-1234-123456789012"
+  ui_build_id: "32345678-1234-1234-1234-123456789012"
+  server_artifact_fresh: true
+  ui_artifact_fresh: true
 EOF
-echo '#!/usr/bin/env bash' > "$REL_DIR/a.sh"
-touch "$REL_DIR/b.zip"
+# Named to match cmd_publish's per-component classification (bundle vs. server
+# vs. ui) — arbitrary a.sh/b.zip names would hit its "unrecognized checksummed
+# file" guard.
+echo '#!/usr/bin/env bash' > "$REL_DIR/deploy-ntv-bundle.sh"
+touch "$REL_DIR/player-server-2.0.0.zip"
 cd "$REL_DIR"
 bash "$GEN_SH" . >/dev/null
 
 # Track non-zip files
 cd "$GITOPS"
-git add "$REL_DIR/release.yaml" "$REL_DIR/a.sh" "$REL_DIR/checksums.sha256"
+git add "$REL_DIR/release.yaml" "$REL_DIR/deploy-ntv-bundle.sh" "$REL_DIR/checksums.sha256"
 git commit --no-verify -m "commit release record" >/dev/null
 
 # dry-run with exact untracked zips: PASS
@@ -129,12 +136,12 @@ touch "$REL_DIR/unexpected.txt"
 rm "$REL_DIR/unexpected.txt"
 
 # modify a tracked file -> FAIL
-echo "# modified" >> "$REL_DIR/a.sh"
+echo "# modified" >> "$REL_DIR/deploy-ntv-bundle.sh"
 ! bash "$RELEASE_SH" publish "$REL_DIR" --gitops "$GITOPS" >/dev/null 2>&1 || { echo "FAIL: modified file allowed"; exit 1; }
-git checkout -- "$REL_DIR/a.sh"
+git checkout -- "$REL_DIR/deploy-ntv-bundle.sh"
 
 # track a zip -> FAIL
-git add "$REL_DIR/b.zip"
+git add "$REL_DIR/player-server-2.0.0.zip"
 ! bash "$RELEASE_SH" publish "$REL_DIR" --gitops "$GITOPS" >/dev/null 2>&1 || { echo "FAIL: tracked zip allowed"; exit 1; }
 
 echo "ALL TESTS PASSED"

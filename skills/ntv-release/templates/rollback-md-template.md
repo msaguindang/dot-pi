@@ -5,7 +5,7 @@ Reverts devices from **player-server {{SERVER_VERSION}} + player-ui {{UI_VERSION
 ## Rollback Command
 
 ```bash
-wget -q https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/rollback-bundle.sh -O - | bash
+wget -q https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUNDLE_BUILD_ID}}/rollback-bundle.sh -O - | bash
 ```
 
 The script is idempotent — safe to re-run.

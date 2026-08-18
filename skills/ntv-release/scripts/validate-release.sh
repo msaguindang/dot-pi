@@ -50,17 +50,23 @@ else
     RELEASE_DIR="$(dirname "$match")"
 fi
 
-BUILD_ID="$(grep -E '^\s*build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
-[[ -n "$BUILD_ID" ]] || { echo "ERROR: no build_id in $RELEASE_DIR/release.yaml" >&2; exit 1; }
+# BUNDLE_BUILD_ID: the release's own (always-fresh) prefix — used for the log
+# filename and as the fallback location for checksums.sha256 (which isn't
+# individually listed under s3.artifacts — see Stage 6 below). Tries the new
+# per-component field first, falls back to the legacy shared s3.build_id for
+# releases cut before the 3-id split.
+BUILD_ID="$(grep -E '^\s*bundle_build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
+[[ -n "$BUILD_ID" ]] || BUILD_ID="$(grep -E '^\s*build_id:' "$RELEASE_DIR/release.yaml" | head -1 | awk '{print $2}' | tr -d '\"')"
+[[ -n "$BUILD_ID" ]] || { echo "ERROR: no bundle_build_id/build_id in $RELEASE_DIR/release.yaml" >&2; exit 1; }
 
 LOG="/tmp/validate-${BUILD_ID}.log"
 : > "$LOG"
 exec > >(tee -a "$LOG") 2>&1
 
 echo "=== ntv-release validation ==="
-echo "Release dir: $RELEASE_DIR"
-echo "BUILD_ID:    $BUILD_ID"
-echo "Log:         $LOG"
+echo "Release dir:     $RELEASE_DIR"
+echo "BUNDLE_BUILD_ID: $BUILD_ID"
+echo "Log:             $LOG"
 echo ""
 
 FAIL=0
@@ -75,60 +81,66 @@ else
 fi
 echo ""
 
-# --- Stage 6: S3 presence ---
+# --- Stage 6: S3 presence + content verification (per-artifact URL) ---------
+# Each checksummed file may now live under a DIFFERENT S3 prefix — deploy-
+# ntv-bundle.sh/rollback-bundle.sh under the (always-fresh) bundle id, but
+# update-*-server.sh/player-server-*.zip under SERVER_BUILD_ID and
+# update-*-ui.sh/player-ui-*.zip under UI_BUILD_ID, either of which may be a
+# REUSED (prior-release) id when that component didn't change this release.
+# Rather than assume one shared prefix, resolve each file's real S3 URL from
+# release.yaml's s3.artifacts list (already fully-qualified per file) — this
+# is schema-agnostic and works unchanged for pre-split (single build_id)
+# releases too, since it just looks at whatever https:// URLs are present.
+# checksums.sha256 itself isn't individually listed in s3.artifacts (it ships
+# alongside the bundle group) — special-cased to the bundle prefix below.
+#
+# Presence and content are checked together via a single head-object call per
+# file: its ETag proves presence, and (for a non-multipart/plain PutObject
+# upload) IS the object's raw MD5 hex, compared against a local md5sum
+# without downloading. `release.sh`'s upload is a single `aws s3 cp` per file
+# (no --checksum-algorithm), and current artifact sizes (~1.4MB server zip,
+# ~0.5MB UI zip, plain-text shell scripts) sit far under the AWS CLI's default
+# 8MiB multipart threshold, so plain PutObject/MD5 ETags are expected in
+# practice. Multipart ETags (containing '-') fall back to a streamed
+# `aws s3 cp - | sha256sum` compared against the recorded sha256, since a
+# multipart ETag is not a usable hash.
 if [[ "$LOCAL_ONLY" == "true" ]]; then
-    echo "--- Stage 6: S3 presence — SKIPPED (--local-only) ---"
-else
-    echo "--- Stage 6: S3 presence (aws s3 ls) ---"
-    if ! command -v aws >/dev/null 2>&1; then
-        echo "[FAIL] aws CLI not found — cannot verify S3."
-        FAIL=1
-    else
-        S3_BUCKET="ncompasstv-prod-player-apps"
-        S3_PREFIX="s3://${S3_BUCKET}/secure-rc/${BUILD_ID}/"
-        listing="$(aws s3 ls "$S3_PREFIX" 2>&1 || true)"
-        echo "$listing"
-        # Every checksummed file + checksums.sha256 must be present in S3.
-        while IFS= read -r fname; do
-            if grep -q " ${fname}\$" <<< "$listing"; then
-                echo "[OK]   in S3: $fname"
-            else
-                echo "[FAIL] MISSING in S3: $fname"
-                FAIL=1
-            fi
-        done < <(awk '{print $2}' "$RELEASE_DIR/checksums.sha256"; echo "checksums.sha256")
-    fi
-fi
-echo ""
-
-# --- Stage 6b: S3 content verification (uploaded bytes vs checksums.sha256) -
-# Presence (stage 6) only proves a same-named object exists — not that its
-# bytes match what was checksummed locally. For each checksummed artifact,
-# pull the live object's ETag via head-object. A plain (non-multipart) S3
-# upload's ETag is the object's raw MD5 hex, so it's compared against a local
-# md5sum without downloading. `release.sh`'s upload is a single `aws s3 cp`
-# per file (no --checksum-algorithm), and current artifact sizes (~1.4MB
-# server zip, ~0.5MB UI zip, plain-text shell scripts) sit far under the AWS
-# CLI's default 8MiB multipart threshold, so plain PutObject/MD5 ETags are
-# expected in practice. Multipart ETags (containing '-') are still detected
-# and handled: fall back to a streamed `aws s3 cp - | sha256sum` compared
-# against the recorded sha256, since a multipart ETag is not a usable hash.
-if [[ "$LOCAL_ONLY" == "true" ]]; then
-    echo "--- Stage 6b: S3 content verification — SKIPPED (--local-only) ---"
+    echo "--- Stage 6: S3 presence + content verification — SKIPPED (--local-only) ---"
 elif ! command -v aws >/dev/null 2>&1; then
-    : # already reported as [FAIL] in stage 6 above
+    echo "--- Stage 6: S3 presence + content verification ---"
+    echo "[FAIL] aws CLI not found — cannot verify S3."
+    FAIL=1
 else
-    echo "--- Stage 6b: S3 content verification (head-object ETag / streamed sha256 fallback) ---"
+    echo "--- Stage 6: S3 presence + content verification (per-artifact URL, head-object ETag / streamed sha256 fallback) ---"
+    S3_BUCKET="ncompasstv-prod-player-apps"
+
+    declare -A ARTIFACT_URL
+    while IFS= read -r url; do
+        [[ -n "$url" ]] || continue
+        ARTIFACT_URL["$(basename "$url")"]="$url"
+    done < <(grep -oE 'https://[^ "]+' "$RELEASE_DIR/release.yaml")
+
     while IFS=$'\t' read -r sha256 fname; do
         [[ -n "$fname" ]] || continue
-        key="secure-rc/${BUILD_ID}/${fname}"
-        # `if ! var=$(cmd)` (not a bare assignment) so a failing head-object
-        # is caught here instead of tripping `set -e` and killing the script.
-        if ! etag_raw="$(aws s3api head-object --bucket "$S3_BUCKET" --key "$key" --query 'ETag' --output text 2>&1)" || [[ -z "$etag_raw" ]]; then
-            echo "[FAIL] head-object failed for $fname: $etag_raw"
+        url="${ARTIFACT_URL[$fname]:-}"
+        if [[ -z "$url" && "$fname" == "checksums.sha256" ]]; then
+            url="https://${S3_BUCKET}.s3.amazonaws.com/secure-rc/${BUILD_ID}/checksums.sha256"
+        fi
+        if [[ -z "$url" ]]; then
+            echo "[FAIL] no S3 URL recorded in release.yaml for checksummed file: $fname"
             FAIL=1
             continue
         fi
+        key="$(sed -E 's#^https://[^/]+/##' <<< "$url")"
+
+        # `if ! var=$(cmd)` (not a bare assignment) so a failing head-object
+        # is caught here instead of tripping `set -e` and killing the script.
+        if ! etag_raw="$(aws s3api head-object --bucket "$S3_BUCKET" --key "$key" --query 'ETag' --output text 2>&1)" || [[ -z "$etag_raw" ]]; then
+            echo "[FAIL] MISSING in S3 (or head-object failed) for $fname at $key: $etag_raw"
+            FAIL=1
+            continue
+        fi
+        echo "[OK]   present in S3: $fname ($key)"
         etag="${etag_raw//\"/}"
         if [[ "$etag" == *-* ]]; then
             # Multipart upload — ETag is not a content hash. Fall back to a

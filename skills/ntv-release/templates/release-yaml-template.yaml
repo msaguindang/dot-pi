@@ -33,16 +33,25 @@ provenance:
 
 s3:
   bucket: ncompasstv-prod-player-apps
-  prefix: secure-rc/{{BUILD_ID}}
-  build_id: {{BUILD_ID}}
-  entrypoint: https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/deploy-ntv-bundle.sh
+  # Three independent build ids: BUNDLE is always fresh (this orchestrator is
+  # re-adapted every release); SERVER/UI are fresh only when that component
+  # actually changed this release, otherwise they equal the prior release's
+  # id and *_artifact_fresh below is false — cmd_publish skips re-uploading
+  # a component whose id was reused, since the prior release's S3 objects
+  # are still live at that prefix.
+  bundle_build_id: {{BUNDLE_BUILD_ID}}
+  server_build_id: {{SERVER_BUILD_ID}}
+  ui_build_id: {{UI_BUILD_ID}}
+  server_artifact_fresh: {{SERVER_ARTIFACT_FRESH}}
+  ui_artifact_fresh: {{UI_ARTIFACT_FRESH}}
+  entrypoint: https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUNDLE_BUILD_ID}}/deploy-ntv-bundle.sh
   artifacts:
-    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/deploy-ntv-bundle.sh
-    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/rollback-bundle.sh
-    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/update-{{SERVER_VERSION}}-server.sh
-    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/update-{{UI_VERSION}}-ui.sh
-    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/player-server-{{SERVER_VERSION}}.zip
-    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUILD_ID}}/player-ui-{{UI_VERSION}}.zip
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUNDLE_BUILD_ID}}/deploy-ntv-bundle.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{BUNDLE_BUILD_ID}}/rollback-bundle.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{SERVER_BUILD_ID}}/update-{{SERVER_VERSION}}-server.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{UI_BUILD_ID}}/update-{{UI_VERSION}}-ui.sh
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{SERVER_BUILD_ID}}/player-server-{{SERVER_VERSION}}.zip
+    - https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/{{UI_BUILD_ID}}/player-ui-{{UI_VERSION}}.zip
 
 policy:
   no_npm_install: true
