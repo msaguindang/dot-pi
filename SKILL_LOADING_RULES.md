@@ -18,7 +18,7 @@ Skills must be loaded **before** the task they govern, not after. Loading mid-ta
 | Dispatching any `subagent()` chain | `pi-subagents` | Chain syntax (`subagent({ chain: [...] })`) is only available after this skill is loaded |
 | Dispatching any subagent with a complex task prompt | `delegation-validator` | Scans the prompt for relative context references that will silently fail in forked sessions |
 | Any NTV domain question, harness question, hyprland, or wezterm | `pi-knowledge-search` | Context is NOT auto-loaded — LLM has no NTV-specific facts without it |
-| Starting work on any NTV ticket, feature, or bug fix | `ntv-worktree-manager` | Creates synchronized worktrees across NTV repos before any code touches the filesystem |
+| Starting work on any NTV ticket, feature, or bug fix | `ntv-worktree-manager` | Creates synchronized worktrees across NTV repos before any code touches the filesystem (Except `REV` edits; ticket usage itself disqualifies REV) |
 | Any Plane ticket query or status update | `plane-tasks` | Provides Plane API access and NTV project IDs |
 | Morning session start / briefing | `session-clock-in` | Restores handoff state from `~/.agents/state/handoffs/`; without it the session starts blind |
 | Session end / wrapping up / day log | `session-clock-out` | Chains to `work-log-writer`; write the handoff correctly before clearing context |

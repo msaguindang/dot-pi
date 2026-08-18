@@ -156,7 +156,7 @@ After all answers are collected:
 \`\`\`
 # Identity: <Role>
 - **Core Principles**: <principles from answer 3>
-- **Operational Constraints**: Always create a plan before execution; use git worktree for implementation work.
+- **Operational Constraints**: Normal mutation follows canonical orchestration; REV mode is the narrow exception defined there. Default to Caveman mode.
 - **Output Preferences**: Direct, concise, technical; minimize boilerplate.
 - **Behavioral Flags**: Challenge assumptions; verify step-by-step using raw outputs.
 \`\`\`

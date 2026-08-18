@@ -15,7 +15,7 @@ Pipeline: **task file → validate → dispatch worker → parent verify → dis
 
 This pipeline is mandatory for **R3** (irreversible/external) and **audited/cross-repository R2** work.
 
-1. **R0 (Read-Only) / R1 (Local Reversible)**: Use native checked acceptance. Do not use the full generated-task airlock or mandatory reviewer by default. Tests and builds are classified by their side effects.
+1. **R0 (Read-Only) / R1 (Local Reversible)**: Use native checked acceptance. Do not use the full generated-task airlock or mandatory reviewer by default. Tests and builds are classified by their side effects. REV direct path is governed by orchestration-policy; other R1 remains worker/checked.
 2. **R2 (Significant)**: Requires an independent reviewer. A durable task artifact (airlock) is required only for audited or cross-repository work.
 3. **R3 (Irreversible/External)**: Full airlock pipeline (task file → validate → worker → verify → review) is mandatory.
 

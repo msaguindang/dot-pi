@@ -4,6 +4,7 @@ Classify every prompt before acting. Default to DIRECT — only escalate when th
 
 **DIRECT** — respond inline, no agents.
 - Conversational, questions, explanations, quick edits, lookups
+- `REV` mode (Fast Path) local reversible edits as defined in orchestration-policy.md
 
 **DELEGATE** — single agent or parallel agents, use `subagent()` tool.
 - Single-agent: `subagent({ agent, task })`
@@ -26,7 +27,7 @@ Cost rules:
 - Never chain when one agent suffices
 - Never delegate when direct suffices
 - When in doubt, go simpler
-- Code changes always go to `worker` — never write code inline as orchestrator
+- Code changes go to `worker` (unless `REV` fast path eligible) — never write code inline as orchestrator outside REV
 
 ## Orchestration & Risk Tiers
 
@@ -63,7 +64,7 @@ For NTV ecosystem, harness decisions, extension patterns, hyprland, or wezterm s
 Load skills explicitly when the task matches — do not rely solely on auto-trigger:
 
 - **NTV domain / harness / hyprland / wezterm questions**: invoke `pi-knowledge-search` first — context is NOT auto-loaded
-- **Starting work on an NTV ticket, feature, or bug**: load `ntv-worktree-manager`
+- **Starting work on an NTV ticket, feature, or bug**: load `ntv-worktree-manager` (except for pre-classified `REV` edits; any ticket disqualifies REV)
 - **Plane task queries, ticket status, sprint/backlog**: load `plane-tasks`
 - **Session start / morning briefing**: load `session-clock-in`
 - **Session end / wrapping up / day log**: load `session-clock-out` (chains to `work-log-writer`)

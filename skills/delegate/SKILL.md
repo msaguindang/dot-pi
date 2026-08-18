@@ -75,4 +75,4 @@ For interactive, supervised pipelines where you relay outputs between phases you
 - Pass the plan + diff to Reviewer. Do not summarize.
 - If Reviewer fails: route back to Worker with specific failure reason. Re-review after fix.
 - Never mark a task complete until Reviewer passes.
-- Never write code as the orchestrator — always delegate to Worker.
+- Never write code as the orchestrator for R2/R3/non-REV tasks — always delegate to Worker (REV bypasses delegation).

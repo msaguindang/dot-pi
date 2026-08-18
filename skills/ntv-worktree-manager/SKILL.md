@@ -8,7 +8,7 @@ description: Orchestrate git worktree creation, synchronization, and setup acros
 A skill for managing synchronized git worktrees across the four core NTV repositories. Worktrees are created **inside** each repo at `<repo>/.worktrees/<branch>` — git-native and automatically gitignored.
 
 ## When to use this skill
-- Starting a new ticket (`feat`, `fix`, `hotfix`, `test`).
+- Starting a new ticket (`feat`, `fix`, `hotfix`, `test`). (Do NOT use for `REV` fast path; any ticket disqualifies REV, refer to orchestration-policy).
 - Setting up a new worktree for a specific task.
 - Ensuring repositories are fetched and initialized after creating a worktree.
 

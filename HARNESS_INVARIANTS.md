@@ -56,6 +56,7 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 - **INV-10** Review-as-default-gate points to canonical rules (see `~/.agents/standards/orchestration-policy.md`). Explicitly distinguish R2 post-implementation review from R3 pre-irreversible review. Irreversible/destructive work (deploys, device imaging) is reviewed against an acceptance spec **before** the irreversible step — not on user request. Review without a spec is theater.
 - **INV-11** Verify outcomes, not operations: tool exit 0 ≠ task success. Inspect the produced artifact against its acceptance criteria; report verified-vs-assumed, never present mechanical success as semantic success.
 - **INV-13** Subagent success claims are unverified until the orchestrator confirms the claimed artifacts exist (files on disk, worktrees/tags in git, objects on S3). A result message is a claim, not evidence. Origin: `session-20260702-incomplete-worktree-dispatch` tag in player-server — worker claimed 2 worktrees + build zips; reality had 1 worktree and 0 zips. For device deployments this extends to a post-deploy probe of actual device state (rpi-doctor). Check: APPEND_SYSTEM.md Orchestration & Risk Tiers contains the verification + probe clauses.
+- **INV-18** REV mode remains an R1 fast path shorthand. Normal R1/R2/R3 behavior is unchanged. Check: orchestration-policy and compile-workflow tests.
 
 ## Extension load order
 
