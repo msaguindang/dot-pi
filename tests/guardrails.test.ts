@@ -6,6 +6,38 @@ import * as os from "node:os";
 import { execSync } from "node:child_process";
 
 import { isProtectedPath, isValidReviewMarker, getChangedPaths, sanitizeForGitDetection } from "../extensions/guardrails.ts";
+import guardrailsExtension from "../extensions/guardrails.ts";
+
+// Captures the bash-command tool_call handler (the second pi.on("tool_call", ...)
+// registration in the extension) by mocking the minimal pi.on surface the
+// extension actually calls, so tests can exercise the real registered hook —
+// not just the exported helper functions in isolation — including the
+// repoHasProtectedScripts git-ls-files check and the branch/protected-path
+// gating around isCommit/isPush that the unit-level sanitizer tests don't
+// reach.
+function getBashHook() {
+  const toolCallHandlers: Array<(event: any, ctx: any) => any> = [];
+  const mockPi = {
+    on: (name: string, handler: (event: any, ctx: any) => any) => {
+      if (name === "tool_call") toolCallHandlers.push(handler);
+    },
+  };
+  guardrailsExtension(mockPi as any);
+  // Two "tool_call" registrations exist: first is the write/edit validation
+  // gateway, second is the bash-command guard. A third registration on
+  // "tool_result" (unrelated) must NOT be counted here — filter by event
+  // name, don't just index into every registration.
+  return toolCallHandlers[1];
+}
+
+function setupProtectedRepoOnMain() {
+  const cwd = setupRepo();
+  execSync("git branch -m main", { cwd, stdio: "ignore" });
+  fs.writeFileSync(path.join(cwd, "deploy-ntv-bundle.sh"), "#!/usr/bin/env bash\necho deploy\n");
+  execSync("git add deploy-ntv-bundle.sh", { cwd, stdio: "ignore" });
+  execSync("git commit -m 'add deploy script'", { cwd, stdio: "ignore" });
+  return cwd;
+}
 
 function setupRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "guardrails-test-"));
@@ -166,4 +198,58 @@ test("getChangedPaths - push range success", () => {
   assert.notStrictEqual(changed, null);
   assert.deepStrictEqual(changed, ["ntv-rpi-imager"]);
   assert.strictEqual(changed!.some(isProtectedPath), true);
+});
+test("end-to-end: the original failure command (git-commit-discussing prose in a python3 write) is not blocked", async () => {
+  const cwd = setupProtectedRepoOnMain();
+  const hook = getBashHook();
+
+  const event = {
+    toolName: "bash",
+    input: {
+      cwd,
+      command: `echo "here's the fix" && python3 -c 'write_report("discussion: git commit boundary handling")'`,
+    },
+  };
+  const result = await hook(event, { ui: { confirm: async () => true } });
+  assert.strictEqual(result?.block, undefined);
+});
+
+test("end-to-end: a real git commit to main that actually changes a protected script is still blocked without sign-off", async () => {
+  const cwd = setupProtectedRepoOnMain();
+  const hook = getBashHook();
+
+  // The review gate scopes to files actually touched by *this* commit
+  // (getChangedPaths), not "does the repo contain a protected file
+  // anywhere" — so the protected script must be re-staged here, not just
+  // committed once during setup.
+  fs.writeFileSync(path.join(cwd, "deploy-ntv-bundle.sh"), "#!/usr/bin/env bash\necho deploy v2\n");
+  execSync("git add deploy-ntv-bundle.sh", { cwd, stdio: "ignore" });
+
+  const event = {
+    toolName: "bash",
+    input: {
+      cwd,
+      command: `git commit -m "hotfix: adjust deploy timing"`,
+    },
+  };
+  const result = await hook(event, { ui: { confirm: async () => true } });
+  assert.strictEqual(result?.block, true);
+});
+
+test("end-to-end: the same real git commit is allowed with PI_REVIEW_OVERRIDE=1 as an inline prefix", async () => {
+  const cwd = setupProtectedRepoOnMain();
+  const hook = getBashHook();
+
+  fs.writeFileSync(path.join(cwd, "deploy-ntv-bundle.sh"), "#!/usr/bin/env bash\necho deploy v2\n");
+  execSync("git add deploy-ntv-bundle.sh", { cwd, stdio: "ignore" });
+
+  const event = {
+    toolName: "bash",
+    input: {
+      cwd,
+      command: `PI_REVIEW_OVERRIDE=1 git commit -m "hotfix: adjust deploy timing"`,
+    },
+  };
+  const result = await hook(event, { ui: { confirm: async () => true } });
+  assert.strictEqual(result?.block, undefined);
 });
