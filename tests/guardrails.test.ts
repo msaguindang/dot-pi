@@ -5,7 +5,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { execSync } from "node:child_process";
 
-import { isProtectedPath, isValidReviewMarker, getChangedPaths } from "../extensions/guardrails.ts";
+import { isProtectedPath, isValidReviewMarker, getChangedPaths, sanitizeForGitDetection } from "../extensions/guardrails.ts";
 
 function setupRepo() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "guardrails-test-"));
@@ -77,6 +77,51 @@ test("getChangedPaths - commit with renamed protected paths", () => {
   assert.notStrictEqual(changed, null);
   assert.strictEqual(changed!.includes("player-scripts.sh"), true);
   assert.strictEqual(changed!.some(isProtectedPath), true);
+});
+
+test("sanitizeForGitDetection - false positive: prose mentioning git commit/push inside a python3 -c string is not detected as a real invocation", () => {
+  const cmd = `python3 -c 'print("Remember to run git commit and git push after review")'`;
+  const sanitized = sanitizeForGitDetection(cmd);
+  assert.strictEqual(/git\s+commit/.test(sanitized), false);
+  assert.strictEqual(/git\s+push/.test(sanitized), false);
+});
+
+test("sanitizeForGitDetection - false positive: multi-line quoted payload (python heredoc-style content) mentioning git commit/push", () => {
+  const cmd = `python3 -c '\ncontent = """\nThis change updates the git commit workflow and adds a git push step.\n"""\n'`;
+  const sanitized = sanitizeForGitDetection(cmd);
+  assert.strictEqual(/git\s+commit/.test(sanitized), false);
+  assert.strictEqual(/git\s+push/.test(sanitized), false);
+});
+
+test("sanitizeForGitDetection - false positive: heredoc body mentioning git commit/push", () => {
+  const cmd = `cat > review.md <<'EOF'\nRun git commit and git push once approved.\nEOF`;
+  const sanitized = sanitizeForGitDetection(cmd);
+  assert.strictEqual(/git\s+commit/.test(sanitized), false);
+  assert.strictEqual(/git\s+push/.test(sanitized), false);
+});
+
+test("sanitizeForGitDetection - true positive: real git commit/push invocation still detected", () => {
+  const commitCmd = `git commit -m "fix: something"`;
+  const pushCmd = `git push origin main`;
+  assert.strictEqual(/git\s+commit/.test(sanitizeForGitDetection(commitCmd)), true);
+  assert.strictEqual(/git\s+push/.test(sanitizeForGitDetection(pushCmd)), true);
+});
+
+test("sanitizeForGitDetection - true positive: real invocation survives even with a quoted commit message", () => {
+  const cmd = `git commit -m "docs: mention git push in the changelog"`;
+  assert.strictEqual(/git\s+commit/.test(sanitizeForGitDetection(cmd)), true);
+});
+
+test("PI_REVIEW_OVERRIDE inline prefix detected in sanitized command text (not just process.env)", () => {
+  const cmd = `PI_REVIEW_OVERRIDE=1 git commit -m "hotfix"`;
+  const sanitized = sanitizeForGitDetection(cmd);
+  assert.strictEqual(/(^|[;&|\s])PI_REVIEW_OVERRIDE=1(\s|$)/.test(sanitized), true);
+});
+
+test("PI_REVIEW_OVERRIDE mentioned only inside embedded prose does not forge an override", () => {
+  const cmd = `python3 -c 'print("set PI_REVIEW_OVERRIDE=1 for emergencies")'`;
+  const sanitized = sanitizeForGitDetection(cmd);
+  assert.strictEqual(/(^|[;&|\s])PI_REVIEW_OVERRIDE=1(\s|$)/.test(sanitized), false);
 });
 
 test("getChangedPaths - push range fail-closed (indeterminate range)", () => {

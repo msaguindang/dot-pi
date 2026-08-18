@@ -22,6 +22,57 @@ export function isValidReviewMarker(cmd: string): boolean {
   return match !== null && /^[a-f0-9]{8,}$/.test(match[1]);
 }
 
+// Strips heredoc bodies (`<<EOF ... EOF` / `<<'EOF' ... EOF`) before pattern
+// matching, so embedded documentation/review text (e.g. an ssh/rm -rf example,
+// or a "git commit" mention) isn't mistaken for a literal shell invocation.
+export function stripHeredocBodies(input: string): string {
+  const lines = input.split("\n");
+  const out: string[] = [];
+  let delimiter: string | null = null;
+  for (const line of lines) {
+    if (delimiter === null) {
+      const m = line.match(/<<-?\s*['"]?(\w+)['"]?\s*$/);
+      if (m) {
+        delimiter = m[1];
+        out.push(line); // keep opener line
+      } else {
+        out.push(line);
+      }
+    } else {
+      if (line.trim() === delimiter) {
+        delimiter = null;
+        out.push(line); // keep closing delimiter line
+      }
+      // else: silently drop body line
+    }
+  }
+  return out.join("\n");
+}
+
+// Strips the *contents* of quoted string literals (single and double quoted),
+// leaving the quote markers behind. Catches the case a heredoc-only stripper
+// misses: a single-quoted payload passed inline on one `python3 -c '...'` line
+// (or spanning multiple physical lines within the quotes, e.g. a triple-quoted
+// Python string) that happens to contain the words "git commit"/"git push" as
+// prose rather than as an actual command.
+// ponytail: naive char-class scan — doesn't perfectly handle an escaped quote
+// nested inside the opposite quote style (e.g. "it's" inside single quotes
+// ends the string early). Good enough for the git-commit/push detector below;
+// revisit if that produces a real false negative.
+export function stripQuotedStrings(input: string): string {
+  return input
+    .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+    .replace(/"(?:[^"\\]|\\.)*"/g, '""');
+}
+
+// Combined sanitizer for the git commit/push detector: strips heredoc bodies
+// and quoted-string contents so embedded prose can't be mistaken for an
+// actual `git commit`/`git push` invocation, or for a `PI_REVIEW_OVERRIDE=1`
+// prefix.
+export function sanitizeForGitDetection(input: string): string {
+  return stripQuotedStrings(stripHeredocBodies(input));
+}
+
 export function getChangedPaths(cmdType: "commit" | "push", cwd: string): string[] | null {
   try {
     if (cmdType === "commit") {
@@ -111,6 +162,13 @@ export default function (pi: ExtensionAPI) {
     if (event.toolName !== "bash" && event.toolName !== "safe_bash") return;
     const cmd = event.input.command ?? "";
     let rmHandled = false;
+    // Sanitized view used anywhere we're detecting an actual `git commit`/
+    // `git push` invocation (or an inline `PI_REVIEW_OVERRIDE=1` prefix) —
+    // strips quoted-string/heredoc bodies so embedded prose mentioning those
+    // words doesn't get mistaken for the real thing. Do NOT use this for
+    // isValidReviewMarker: that reads the actual `-m` commit message, which
+    // lives inside the quotes we strip here.
+    const cmdForGitDetection = sanitizeForGitDetection(cmd);
 
     // Protected paths and dangerous bash ops...
     const watchedConfigDirs = [
@@ -164,8 +222,8 @@ export default function (pi: ExtensionAPI) {
     // commits. Enforce here: device/deploy script changes cannot land on
     // main/master without a reviewer sign-off marker. Hard block, not confirm
     // (confirms get rubber-stamped).
-    const isCommit = /git\s+commit/.test(cmd);
-    const isPush = /git\s+push/.test(cmd);
+    const isCommit = /git\s+commit/.test(cmdForGitDetection);
+    const isPush = /git\s+push/.test(cmdForGitDetection);
     if (isCommit || isPush) {
       const cwd = (event.input.cwd as string) ?? process.cwd();
 
@@ -186,7 +244,7 @@ export default function (pi: ExtensionAPI) {
       const branchPattern = new RegExp(`\\b(${protectedBranches.join("|")})\\b`);
       const advancesProtected =
         (isCommit && protectedBranches.includes(currentBranch)) ||
-        (isPush && (protectedBranches.includes(currentBranch) || branchPattern.test(cmd)));
+        (isPush && (protectedBranches.includes(currentBranch) || branchPattern.test(cmdForGitDetection)));
 
       if (advancesProtected) {
         const changedPaths = getChangedPaths(isCommit ? "commit" : "push", cwd);
@@ -195,7 +253,15 @@ export default function (pi: ExtensionAPI) {
         if (requiresReview) {
           // Review markers that lift the block.
           const hasReviewedByTrailer = isValidReviewMarker(cmd);
-          const hasOverrideEnv = process.env.PI_REVIEW_OVERRIDE === "1";
+          // process.env here is the hook's own (already-running) Node process —
+          // an inline `PI_REVIEW_OVERRIDE=1 <cmd>` prefix on the bash command is
+          // an env assignment meant for the *child* process the shell is about
+          // to spawn; it never touches the hook's process.env. Also detect it
+          // as a literal prefix in the command text itself (sanitized, so a
+          // heredoc/quoted mention of it can't forge an override).
+          const hasOverrideEnv =
+            process.env.PI_REVIEW_OVERRIDE === "1" ||
+            /(^|[;&|\s])PI_REVIEW_OVERRIDE=1(\s|$)/.test(cmdForGitDetection);
           let hasReviewMarkerFile = false;
           try {
             hasReviewMarkerFile = fs.existsSync(path.join(cwd, ".review-pass"));
@@ -216,13 +282,13 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (/git\s+push/.test(cmd)) {
-      if (/--force|(?<![a-zA-Z])-f(?![a-zA-Z])/.test(cmd)) {
+    if (isPush) {
+      if (/--force|(?<![a-zA-Z])-f(?![a-zA-Z])/.test(cmdForGitDetection)) {
         return { block: true, reason: "Blocked" };
       }
       const productionBranches = ["main", "master", process.env.DEPLOY_BRANCH ?? "dev-deploy-environment"];
       const branchPattern = new RegExp(`\\b(${productionBranches.join("|")})\\b`);
-      if (branchPattern.test(cmd)) {
+      if (branchPattern.test(cmdForGitDetection)) {
         const ok = await ctx.ui.confirm("GUARDRAIL", `git push to production branch detected. Allow?`);
         if (!ok) return { block: true, reason: "Blocked" };
       }
@@ -234,34 +300,9 @@ export default function (pi: ExtensionAPI) {
         if (!ok) return { block: true, reason: "Blocked" };
       }
     }
-    // Strip heredoc bodies before pattern matching to prevent false-positives.
+    // Heredoc bodies stripped before pattern matching to prevent false-positives.
     // A heredoc can embed documentation text (e.g. ssh/rm -rf examples) that
     // should NOT be treated as actual shell commands.
-    const stripHeredocBodies = (input: string): string => {
-      const lines = input.split("\n");
-      const out: string[] = [];
-      let delimiter: string | null = null;
-      for (const line of lines) {
-        if (delimiter === null) {
-          // Detect heredoc opener: << or <<- followed by optional quotes and a word
-          const m = line.match(/<<-?\s*['"]?(\w+)['"]?\s*$/);
-          if (m) {
-            delimiter = m[1];
-            out.push(line); // keep opener line
-          } else {
-            out.push(line);
-          }
-        } else {
-          // Inside heredoc body — skip body lines, keep only the closing delimiter
-          if (line.trim() === delimiter) {
-            delimiter = null;
-            out.push(line); // keep closing delimiter line
-          }
-          // else: silently drop body line
-        }
-      }
-      return out.join("\n");
-    };
     const cmdSafe = stripHeredocBodies(cmd);
 
     if (/\b(ssh|scp|sshpass)\b/.test(cmdSafe)) {
