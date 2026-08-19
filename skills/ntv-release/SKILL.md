@@ -31,6 +31,34 @@ self-detach via re-download, SIGHUP trap, idempotency gate, crontab window,
   component changed. No npm install / no OS package changes on fleet devices.
 - **No fleet rollout before test-device verification** (verification.md checklist).
 
+## S3 Layout — one flat level per build id, by design
+
+Each `secure-rc/<BUILD_ID>/` folder holds everything for one component's one release
+cut (its zip + its update script, or the bundle's own orchestrator + rollback script)
+in a single flat level — not split into content-type directories like
+`secure-rc/artifacts/player-server/` + `secure-rc/scripts/`. This is intentional, not
+an oversight: the folder itself is the atomic, immutable unit the whole rollback/audit
+system depends on ("Fresh UUID BUILD_ID per release. Never reuse." above). Any given
+folder means exactly one frozen thing, forever — that's what makes a rollback command
+or an incident-response S3 URL trustworthy months later.
+
+Three independent build ids exist per release — `BUNDLE_BUILD_ID` (always fresh, the
+orchestrator is re-adapted every release), `SERVER_BUILD_ID`, `UI_BUILD_ID` (each fresh
+only if that component actually changed, otherwise reused from the prior release's live
+folder) — specifically so an unchanged component is never re-uploaded or relocated just
+because its sibling changed. This is why a bundle's own script and its component zips
+can legitimately live in *different* folders within one release: `deploy-ntv-bundle.sh`
+holds separate `S3_SERVER_BASE`/`S3_UI_BASE` URLs rather than assuming co-location.
+
+A content-type-organized layout (versioned filenames in a long-lived shared directory)
+would be more human-browsable via `aws s3 ls`, but would move the versioning/immutability
+guarantee onto filename discipline in a mutable directory instead of the folder itself,
+and would require rewriting the URL scheme baked into every deploy/update/rollback
+script plus `release.sh`'s build-id logic. Considered and declined 2026-08-19 — if
+browsability is what's needed, the fix is a small tool that reads
+`fleet-gitops/player-apps/releases/*/release.yaml` (already the version→build-id index)
+into a table, not a change to the S3 layout itself.
+
 ## Operating Defaults
 
 - **Risk Tier Application:** Editing release tooling locally without publishing/deploying is **R2**. Executing prepare, publish, or deploy external steps is **R3** (Irreversible/External). See `~/.agents/standards/orchestration-policy.md` for canonical generic definitions (evidence rules, fail-fast limits, output hygiene, and blast-radius defaults).
