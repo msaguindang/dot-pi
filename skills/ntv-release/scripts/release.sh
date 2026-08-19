@@ -574,10 +574,7 @@ cmd_init() {
         cp "$prior_ui_sh" "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
     fi
 
-    # rollback-bundle.sh has no template; copy from the prior release dir as a base
-    # (same prior_release_dir selected above — non-retired, newest by date).
-    local prior_rb="$prior_release_dir/rollback-bundle.sh"
-    [[ -f "$prior_rb" ]] && cp "$prior_rb" "$RELEASE_DIR/rollback-bundle.sh"
+    [[ -f "$T/rollback-bundle.sh" ]] && cp "$T/rollback-bundle.sh" "$RELEASE_DIR/rollback-bundle.sh"
 
     local sh
     for sh in "$RELEASE_DIR"/*.sh; do
@@ -606,6 +603,30 @@ cmd_init() {
                "$RELEASE_DIR/update-${SERVER_VERSION}-server.sh"
     fi
 
+    # rollback-bundle.sh's actual variable names (SERVER_ROLLBACK_VERSION/
+    # SERVER_FROM_VERSION/UI_ROLLBACK_VERSION/UI_FROM_VERSION/ROLLBACK_BUILD_ID/
+    # *_ROLLBACK_ZIP_URL) differ from every other script's (VERSION/BUILD_ID) —
+    # a prior version of this sed targeted the wrong names entirely and never
+    # matched anything, silently carrying forward whatever an ancestor release
+    # had. ROLLBACK_BUILD_ID is THIS release's own BUNDLE_BUILD_ID (used only
+    # for rollback-bundle.sh's self-download on detach) — each component's
+    # rollback zip uses its own prior build id, independent of that.
+    if [[ -f "$RELEASE_DIR/rollback-bundle.sh" ]]; then
+        local prior_server_build_id prior_ui_build_id
+        prior_server_build_id="$(prior_component_build_id "$prior_yaml" server_build_id)"
+        prior_ui_build_id="$(prior_component_build_id "$prior_yaml" ui_build_id)"
+        [[ -n "$prior_server_build_id" ]] || err "rollback-bundle.sh: prior release $prior_release_dir has no server_build_id to build a rollback URL from."
+        [[ -n "$prior_ui_build_id" ]] || err "rollback-bundle.sh: prior release $prior_release_dir has no ui_build_id to build a rollback URL from."
+        sed -i -e "s/^readonly SERVER_ROLLBACK_VERSION=.*/readonly SERVER_ROLLBACK_VERSION=\"$ps_ver\"/" \
+               -e "s/^readonly SERVER_FROM_VERSION=.*/readonly SERVER_FROM_VERSION=\"$SERVER_VERSION\"/" \
+               -e "s/^readonly UI_ROLLBACK_VERSION=.*/readonly UI_ROLLBACK_VERSION=\"$pu_ver\"/" \
+               -e "s/^readonly UI_FROM_VERSION=.*/readonly UI_FROM_VERSION=\"$UI_VERSION\"/" \
+               -e "s/^readonly ROLLBACK_BUILD_ID=.*/readonly ROLLBACK_BUILD_ID=\"$BUNDLE_BUILD_ID\"/" \
+               -e "s|^readonly SERVER_ROLLBACK_ZIP_URL=.*|readonly SERVER_ROLLBACK_ZIP_URL=\"https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/${prior_server_build_id}/player-server-${ps_ver}.zip\"|" \
+               -e "s|^readonly UI_ROLLBACK_ZIP_URL=.*|readonly UI_ROLLBACK_ZIP_URL=\"https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/${prior_ui_build_id}/player-ui-${pu_ver}.zip\"|" \
+               "$RELEASE_DIR/rollback-bundle.sh"
+    fi
+
     if [[ "$UI_ARTIFACT_FRESH" == "true" && -f "$RELEASE_DIR/update-${UI_VERSION}-ui.sh" ]]; then
         sed -i -e "s/^readonly VERSION=.*/readonly VERSION=\"$UI_VERSION\"/" \
                -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$UI_VERSION\"/" \
@@ -613,19 +634,6 @@ cmd_init() {
                -e "s|/player-ui-[0-9\.]*\.zip|/player-ui-${UI_VERSION}.zip|" \
                "$RELEASE_DIR/update-${UI_VERSION}-ui.sh"
     fi
-
-    # NOTE (pre-existing, not introduced by the build-id split): rollback-bundle.sh
-    # has no template of its own — it's copied forward from the prior release dir
-    # (see prior_rb above) and its actual variable names are SERVER_ROLLBACK_VERSION /
-    # SERVER_FROM_VERSION / UI_ROLLBACK_VERSION / UI_FROM_VERSION / ROLLBACK_BUILD_ID,
-    # not SERVER_VERSION/UI_VERSION/BUILD_ID — so this sed has never actually matched
-    # anything; ROLLBACK_BUILD_ID has always just carried forward whatever the prior
-    # release's rollback-bundle.sh had. Left as-is (same no-op behavior as before the
-    # build-id split) rather than fixed here — that's a separate, unrelated bug.
-    [[ -f "$RELEASE_DIR/rollback-bundle.sh" ]] && sed -i -e "s/^readonly SERVER_VERSION=.*/readonly SERVER_VERSION=\"$ps_ver\"/" \
-           -e "s/^readonly UI_VERSION=.*/readonly UI_VERSION=\"$pu_ver\"/" \
-           -e "s/^readonly BUILD_ID=.*/readonly BUILD_ID=\"$BUNDLE_BUILD_ID\"/" \
-           "$RELEASE_DIR/rollback-bundle.sh"
 
     info "Generating checksums..."
     bash "$SKILL_DIR/scripts/gen-checksums.sh" "$RELEASE_DIR"
