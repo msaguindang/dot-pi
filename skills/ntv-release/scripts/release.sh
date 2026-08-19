@@ -185,6 +185,24 @@ get_s3_bool() { # get_s3_bool <yaml-file> <field-name> -> true|false
 # falls back to the legacy shared s3.build_id (releases cut before this
 # 3-id split used one BUILD_ID for everything, so it's a valid reuse source
 # for either component). Empty output means neither was found.
+provenance_field() { # provenance_field <yaml-file> <component> <field> -> value or empty
+    # Matches the observed release.yaml indentation exactly (2 spaces for the
+    # component key under provenance:, 4 spaces for its fields) — not a general
+    # YAML parser, just enough for this file's one consistent shape.
+    local yaml_file="$1" component="$2" field="$3"
+    awk -v component="$component" -v field="$field" '
+        $0 ~ "^  " component ":[ \t]*(#.*)?$" { in_comp = 1; next }
+        in_comp && /^  [a-zA-Z0-9_-]+:/ { in_comp = 0 }
+        in_comp && $0 ~ "^    " field ":[ \t]+" {
+            val = $0
+            sub("^    " field ":[ \t]+", "", val)
+            sub(/[ \t]*(#.*)?$/, "", val)
+            gsub(/^"|"$/, "", val)
+            if (val != "") { print val; exit }
+        }
+    ' "$yaml_file" 2>/dev/null
+}
+
 prior_component_build_id() { # prior_component_build_id <yaml-file> <field-name> -> value or empty
     local yaml_file="$1" field="$2" val
     val="$(probe_s3_field "$yaml_file" "$field")"
@@ -199,12 +217,39 @@ prior_component_build_id() { # prior_component_build_id <yaml-file> <field-name>
 # Documented fallback: newest `chore(release): bump version to X.Y.Z` commit
 # on the default branch (version bumps that never shipped may pollute this —
 # always eyeball the result). Override with --prior-server / --prior-ui.
-prior_stable() { # prior_stable <repo-path>  -> "ref version commit"
-    local repo="$1" tag ver commit annotated
+prior_stable() { # prior_stable <repo-path> [exclude-version] [releases-dir]  -> "ref version commit"
+    local repo="$1" exclude_version="${2:-}" releases_dir="${3:-}" tag ver commit annotated candidates line
     annotated="$(git -C "$repo" for-each-ref 'refs/tags/v[0-9]*' \
             --format='%(objecttype) %(refname:short)' 2>/dev/null \
           | awk '$1=="tag"{print $2}')"
-    tag="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<< "$annotated" | sort -V | tail -1)"
+    candidates="$(grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' <<< "$annotated")"
+    if [[ -n "$exclude_version" ]]; then
+        # A same-version tag must only be excluded if it's premature — i.e. no
+        # fleet-gitops release has actually shipped under that version yet
+        # (main tagged at merge time, before that version's own S3 publish).
+        # If a release record already exists for it, the tag is legitimate
+        # and must NOT be excluded — re-requesting the same, already-shipped
+        # version because a component is genuinely unchanged is a normal,
+        # common case (e.g. player-ui staying at v3.1.21 across several
+        # server-only releases) and must not be broken by this check.
+        local already_shipped=false
+        if [[ -n "$releases_dir" ]] && grep -rq "version: \"$exclude_version\"" "$releases_dir"/*/release.yaml 2>/dev/null; then
+            already_shipped=true
+        fi
+        if [[ "$already_shipped" == "false" ]]; then
+            local filtered=""
+            while IFS= read -r line; do
+                [[ -n "$line" ]] || continue
+                local v="${line#v}"
+                if [[ "$v" != "$exclude_version" ]] && \
+                   [[ "$(printf '%s\n%s\n' "$v" "$exclude_version" | sort -V | head -1)" == "$v" ]]; then
+                    filtered+="$line"$'\n'
+                fi
+            done <<< "$candidates"
+            candidates="$filtered"
+        fi
+    fi
+    tag="$(sort -V <<< "$candidates" | tail -1)"
     [[ -n "$tag" ]] || tag="$(sort -V <<< "$annotated" | tail -1)"
     if [[ -n "$tag" ]]; then
         ver="${tag#v}"; ver="${ver%%-*}"
@@ -378,8 +423,8 @@ cmd_init() {
 
     # --- prior-stable detection ------------------------------------------------
     local ps_ref ps_ver ps_commit pu_ref pu_ver pu_commit
-    read -r ps_ref ps_ver ps_commit <<< "$(prior_stable "$SERVER_REPO")"
-    read -r pu_ref pu_ver pu_commit <<< "$(prior_stable "$UI_REPO")"
+    read -r ps_ref ps_ver ps_commit <<< "$(prior_stable "$SERVER_REPO" "$SERVER_VERSION" "$RELEASES_DIR")"
+    read -r pu_ref pu_ver pu_commit <<< "$(prior_stable "$UI_REPO" "$UI_VERSION" "$RELEASES_DIR")"
     [[ -n "$PRIOR_SERVER_OVERRIDE" ]] && { ps_ref="$PRIOR_SERVER_OVERRIDE"; ps_ver="${PRIOR_SERVER_OVERRIDE#v}"; ps_ver="${ps_ver%%-*}"; }
     [[ -n "$PRIOR_UI_OVERRIDE"     ]] && { pu_ref="$PRIOR_UI_OVERRIDE"; pu_ver="${PRIOR_UI_OVERRIDE#v}"; pu_ver="${pu_ver%%-*}"; }
     info "Prior stable server: $ps_ver ($ps_ref @ ${ps_commit:-?})"
@@ -400,6 +445,35 @@ cmd_init() {
     local prior_build_id="unknown"
     [[ -f "$prior_yaml" ]] && prior_build_id="$(prior_component_build_id "$prior_yaml" bundle_build_id)"
     [[ -n "$prior_build_id" ]] || prior_build_id="unknown"
+
+    # The fleet-gitops release record is ground truth for what actually shipped
+    # — prefer it over the git-tag-based prior_stable() result above whenever
+    # one exists, since a real release can ship without ever being tagged
+    # (true for everything before main started getting tagged on every
+    # release). Without this, a stale tag can make prior_stable() point at an
+    # older version than what's actually live, producing wrong rollback
+    # targets and freshness decisions. An explicit --prior-server/--prior-ui
+    # override still wins over both.
+    if [[ -f "$prior_yaml" ]]; then
+        if [[ -z "$PRIOR_SERVER_OVERRIDE" ]]; then
+            local folder_ps_ver folder_ps_commit
+            folder_ps_ver="$(provenance_field "$prior_yaml" "player-server" "version")"
+            if [[ -n "$folder_ps_ver" && "$folder_ps_ver" != "$ps_ver" ]]; then
+                folder_ps_commit="$(provenance_field "$prior_yaml" "player-server" "commit")"
+                info "Correcting prior stable server from tag-based '$ps_ver' ($ps_ref) to fleet-gitops record '$folder_ps_ver' (${prior_release_dir##*/}) — the tag is stale or missing for the actual last-shipped version."
+                ps_ver="$folder_ps_ver"; ps_commit="$folder_ps_commit"; ps_ref="release:${prior_release_dir##*/}"
+            fi
+        fi
+        if [[ -z "$PRIOR_UI_OVERRIDE" ]]; then
+            local folder_pu_ver folder_pu_commit
+            folder_pu_ver="$(provenance_field "$prior_yaml" "player-ui" "version")"
+            if [[ -n "$folder_pu_ver" && "$folder_pu_ver" != "$pu_ver" ]]; then
+                folder_pu_commit="$(provenance_field "$prior_yaml" "player-ui" "commit")"
+                info "Correcting prior stable UI from tag-based '$pu_ver' ($pu_ref) to fleet-gitops record '$folder_pu_ver' (${prior_release_dir##*/}) — the tag is stale or missing for the actual last-shipped version."
+                pu_ver="$folder_pu_ver"; pu_commit="$folder_pu_commit"; pu_ref="release:${prior_release_dir##*/}"
+            fi
+        fi
+    fi
 
     # --- SERVER_BUILD_ID / UI_BUILD_ID: freshness is decided by VERSION vs the
     # prior stable release, not by --skip-*-build. That flag only means "don't
