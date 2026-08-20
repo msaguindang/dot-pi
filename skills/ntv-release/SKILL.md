@@ -145,6 +145,15 @@ that only device-validated code reaches immutable S3 artifacts.
    `git checkout next && git merge --no-ff fix/<name>`; push both remotes.
    Then clean up: stop HTTP server, remove `/tmp` candidate.
 
+   **Branch cleanup (mandatory, do not skip):** once the merge commit is confirmed
+   pushed to both remotes, run
+   `scripts/release.sh cleanup-branch --fix-branch fix/<name> --repo <server-or-ui-repo>`
+   — it verifies the branch is actually merged, then deletes the local worktree
+   (if any), the local branch, and both remotes (origin, forgejo). This is the
+   step that was historically skipped under release-urgency pressure, leaving
+   merged branches/worktrees accumulating indefinitely on both repos — run the
+   script, don't just assume prose memory of "clean up after" is enough.
+
 ### Canonical Rebuild Comparison (step 10)
 
 After merge, the canonical release ritual builds from the merged `next` HEAD. Before
@@ -167,7 +176,8 @@ been merged into `next`. The target package version must be committed on the fix
     cross-repo fixes). Typecheck, lint, Conventional Commits, satisfy the canonical
     release-metadata rule above, and push to BOTH `origin` and `forgejo`. *(Completed before QA)*
 12. **Merge into next** — `git checkout next && git merge --no-ff fix/<name>`; verify a
-    merge commit was created; push both remotes. *(Completed at QA step 9)*
+    merge commit was created; push both remotes. Branch cleanup (worktree + local + both
+    remotes) included. *(Completed at QA step 9)*
 13. **Verify target version** — Confirm `package.json` version matches the already-tested
     target version from QA. No new version bump after QA — the canonical artifact must
     match the tested candidate. The script verifies clean tree and package.json version.

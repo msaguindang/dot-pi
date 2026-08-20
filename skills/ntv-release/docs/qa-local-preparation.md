@@ -19,9 +19,8 @@ Validate fix/feature branches on a test device **before** merging into `next`, u
 |-------|--------|-------|
 | Fix branch worktree path | e.g., `.worktrees/fix/PV1-5-2.10.2-simple-delivery` | Must be clean |
 | Branch HEAD commit | e.g., `68e433ec` | For verification and candidate ID |
-| Branch build ZIP | `builds/player-server-X.Y.Z.zip` | Must exist, >1MB |
-| Production public assets | `.worktrees/next/src/public/` | Exactly 32 files |
-| Reviewed release scripts | `fleet-gitops/player-apps/releases/<latest-rev2>/` | Use most recent rev2 scripts |
+| Branch build ZIP | `builds/player-server-X.Y.Z.zip` | Must exist. No fixed size floor — confirm against the most recent real published release's ZIP size instead of a hardcoded byte count, since the build shape has changed over time (e.g. `node_modules` no longer ships in the ZIP as of the PV1-25 hardening; recent ZIPs run ~160-170KB, not >1MB) |
+| Reviewed release scripts | `fleet-gitops/player-apps/releases/<most-recent-by-date>/` | Use the latest *actually published* release, not a literal `*-rev2` glob — no recent release uses that suffix, so the glob silently returns a stale script |
 | Host IP/port | e.g., `192.168.1.120:8765` | LAN-reachable from QA device |
 | QA device address | e.g., `192.168.1.68` | For manual deployment |
 
@@ -50,7 +49,16 @@ git status --porcelain | grep -q . && { echo "Dirty worktree"; exit 1; }
 # Verify ZIP structure, integrity, version, and build-info
 ZIP_PATH="builds/player-server-2.10.2.zip"
 unzip -t "$ZIP_PATH" || { echo "ZIP corrupt"; exit 1; }
-[[ $(stat -c%s "$ZIP_PATH") -gt 1048576 ]] || { echo "ZIP too small"; exit 1; }
+
+# No fixed size floor -- compare against the most recent real published
+# release's ZIP instead (build shape has changed over time; do not assume
+# >1MB, that predates the PV1-25 node_modules-restore hardening)
+LATEST_PUBLISHED=$(ls -1td /data/dev/work/ntv/fleet-gitops/player-apps/releases/*/player-server-*.zip | head -1)
+REFERENCE_SIZE=$(stat -c%s "$LATEST_PUBLISHED")
+THIS_SIZE=$(stat -c%s "$ZIP_PATH")
+echo "this ZIP: $THIS_SIZE bytes; latest published ($LATEST_PUBLISHED): $REFERENCE_SIZE bytes"
+# Sanity-check same order of magnitude rather than a hardcoded threshold:
+[[ "$THIS_SIZE" -gt $((REFERENCE_SIZE / 4)) ]] || { echo "ZIP suspiciously small vs. latest published release"; exit 1; }
 
 # Extract and check package version
 unzip -q "$ZIP_PATH" -d /tmp/qa-check
@@ -63,82 +71,89 @@ echo "$BUILD_INFO" | grep -q "68e433e" || { echo "Build-info commit mismatch"; e
 rm -rf /tmp/qa-check
 ```
 
-### 3. Rebuild ZIP with Production Public Assets
+### 3. Assemble Candidate Directory
+
+`.worktrees/next/src/public` is a gitignored runtime directory, not a
+production-provenance asset set — it is typically empty in a fresh checkout,
+and neither `deploy-ntv-bundle.sh` nor any `update-*-server.sh`/`update-*-ui.sh`
+in the actual published releases reference it. There is nothing to rebuild
+into the ZIP; the branch ZIP from step 2 is the final artifact as-is. If a
+future release genuinely reintroduces a public-assets step, verify it against
+the real release scripts (`grep -rn "src/public" <script>`) before trusting
+any fixed file count.
 
 ```bash
-# Create candidate directory
 CANDIDATE_ID="qa-local-68e433e"
 CANDIDATE_DIR="/tmp/ntv-qa-$CANDIDATE_ID"
 mkdir -p "$CANDIDATE_DIR/artifacts"
 
-# Extract branch ZIP
-unzip -q "$ZIP_PATH" -d "$CANDIDATE_DIR/artifacts"
-
-# Verify public asset count (must be exactly 32)
-PUBLIC_SRC="/data/dev/work/ntv/player-server/.worktrees/next/src/public"
-PUBLIC_COUNT=$(find "$PUBLIC_SRC" -type f | wc -l)
-[[ "$PUBLIC_COUNT" -eq 32 ]] || { echo "Public asset count mismatch"; exit 1; }
-
-# Copy production-provenance public assets
-cp -r "$PUBLIC_SRC"/* "$CANDIDATE_DIR/artifacts/player-server-2.10.2/src/public/"
-
-# Rebuild ZIP with public assets included
-cd "$CANDIDATE_DIR/artifacts"
-zip -r -q player-server-2.10.2.zip player-server-2.10.2/
+cp "$ZIP_PATH" "$CANDIDATE_DIR/artifacts/"
 ```
 
-### 4. Validate Rebuilt ZIP
+### 4. Validate Candidate ZIP
 
 ```bash
-# Integrity check
-unzip -t player-server-2.10.2.zip || { echo "Rebuilt ZIP corrupt"; exit 1; }
-
-# Size check (must be >1MB)
-ZIP_SIZE=$(stat -c%s player-server-2.10.2.zip)
-[[ "$ZIP_SIZE" -gt 1048576 ]] || { echo "Rebuilt ZIP too small"; exit 1; }
-
-# Verify all 32 public files present with matching SHA-256
-cd player-server-2.10.2/src/public
-find . -type f | while read -r file; do
-    EXPECTED_SHA=$(sha256sum "$PUBLIC_SRC/$file" | awk '{print $1}')
-    ACTUAL_SHA=$(sha256sum "$file" | awk '{print $1}')
-    [[ "$EXPECTED_SHA" == "$ACTUAL_SHA" ]] || { echo "Public file SHA mismatch: $file"; exit 1; }
-done
-cd "$CANDIDATE_DIR"
+unzip -t "$CANDIDATE_DIR/artifacts/player-server-2.10.2.zip" || { echo "ZIP corrupt"; exit 1; }
 ```
 
 ### 5. Copy and Adapt Reviewed Release Scripts
 
+**Source authority:** use the latest *actually published* release directory
+(most recent `player-apps/releases/*` by date, verified device-deployed), not
+a literal `ls *-rev2` glob — no recent release uses that suffix, so that glob
+silently returns a stale, possibly months-old script. Read the candidate
+script's own header comments to confirm which hardening revision it is before
+trusting it as "latest reviewed."
+
+**Placement is not uniform — deploy-ntv-bundle.sh and the component update
+scripts live in different S3 prefixes in production, so they need different
+local paths, or the device 404s on the second fetch:**
+
+- `deploy-ntv-bundle.sh` → **candidate root**. Its own `S3_BASE` var points here
+  (used by the self-detach re-exec, which re-fetches this exact file mid-run).
+- `update-<version>-server.sh` / `update-<version>-ui.sh` → **`artifacts/`**,
+  alongside the ZIP. `deploy-ntv-bundle.sh` fetches each component script from
+  `S3_SERVER_BASE`/`S3_UI_BASE` — the *same* prefix as that component's ZIP,
+  not its own directory. Confirm with
+  `grep -n 'wget.*update-\${SERVER_VERSION}-server.sh' deploy-ntv-bundle.sh`
+  before assuming otherwise — production S3 keeps a component's ZIP and update
+  script together under one `secure-rc/<BUILD_ID>/` prefix.
+
 ```bash
-# Identify latest reviewed rev2 release scripts
-SCRIPT_SOURCE=$(ls -1td /data/dev/work/ntv/fleet-gitops/player-apps/releases/*-rev2 | head -1)
+SCRIPT_SOURCE=$(ls -1td /data/dev/work/ntv/fleet-gitops/player-apps/releases/* | head -1)
 
-# Copy the three core scripts to candidate root (not scripts/ subdirectory)
 cp "$SCRIPT_SOURCE/deploy-ntv-bundle.sh" "$CANDIDATE_DIR/"
-cp "$SCRIPT_SOURCE/update-2.10.2-server.sh" "$CANDIDATE_DIR/"
-cp "$SCRIPT_SOURCE/update-3.0.50-ui.sh" "$CANDIDATE_DIR/"
+cp "$SCRIPT_SOURCE/update-2.10.2-server.sh" "$CANDIDATE_DIR/artifacts/"
+cp "$SCRIPT_SOURCE/update-3.0.50-ui.sh" "$CANDIDATE_DIR/artifacts/"
 
-# Adapt URLs only (preserve all installer logic)
-# Replace S3 URLs with LAN HTTP URLs
-# Example pattern (MUST preserve all other logic):
-cd "$CANDIDATE_DIR"
-for script in *.sh; do
-    # Replace BUILD_ID with QA_ID
-    sed -i "s/BUILD_ID=\"[^\"]*\"/BUILD_ID=\"$CANDIDATE_ID\"/g" "$script"
-    
-    # Replace S3 URLs with LAN HTTP (scripts served at root, not /scripts/)
+# deploy-ntv-bundle.sh has THREE distinct S3 base vars, mapped to two
+# different LAN locations — do not blanket sed-replace all of them the same
+# way, or self-detach breaks:
+sed -i "s|readonly BUNDLE_BUILD_ID=\"[^\"]*\"|readonly BUNDLE_BUILD_ID=\"$CANDIDATE_ID\"|" "$CANDIDATE_DIR/deploy-ntv-bundle.sh"
+sed -i "s|readonly SERVER_BUILD_ID=\"[^\"]*\"|readonly SERVER_BUILD_ID=\"$CANDIDATE_ID\"|" "$CANDIDATE_DIR/deploy-ntv-bundle.sh"
+sed -i "s|readonly S3_BASE=\"https://[^\"]*\"|readonly S3_BASE=\"http://192.168.1.120:8765\"|" "$CANDIDATE_DIR/deploy-ntv-bundle.sh"
+sed -i "s|readonly S3_SERVER_BASE=\"https://[^\"]*\"|readonly S3_SERVER_BASE=\"http://192.168.1.120:8765/artifacts\"|" "$CANDIDATE_DIR/deploy-ntv-bundle.sh"
+sed -i "s|readonly S3_UI_BASE=\"https://[^\"]*\"|readonly S3_UI_BASE=\"http://192.168.1.120:8765/artifacts\"|" "$CANDIDATE_DIR/deploy-ntv-bundle.sh"
+
+# Component scripts each have exactly one S3_ARTIFACT_URL — blanket-replace is
+# safe here, since there's only the one destination (artifacts/, where the
+# script itself now also lives):
+for script in "$CANDIDATE_DIR"/artifacts/*.sh; do
+    sed -i "s/readonly BUILD_ID=\"[^\"]*\"/readonly BUILD_ID=\"$CANDIDATE_ID\"/" "$script"
     sed -i "s|https://ncompasstv-prod-player-apps.s3.amazonaws.com/secure-rc/[^/]*/|http://192.168.1.120:8765/artifacts/|g" "$script"
-    
-    # Verify no S3 URLs remain
-    grep -q "s3.amazonaws.com" "$script" && { echo "S3 URL still present in $script"; exit 1; }
 done
+
+# Verify no S3 URLs remain anywhere
+grep -rq "s3.amazonaws.com" "$CANDIDATE_DIR"/*.sh "$CANDIDATE_DIR"/artifacts/*.sh \
+    && { echo "S3 URL still present"; exit 1; }
 ```
 
 ### 6. Validate Candidate Scripts
 
 ```bash
-# Syntax check all scripts
-for script in "$CANDIDATE_DIR"/*.sh; do
+# Syntax check all scripts (root AND artifacts/ — component update scripts
+# live in artifacts/, not root; see step 5)
+for script in "$CANDIDATE_DIR"/*.sh "$CANDIDATE_DIR"/artifacts/*.sh; do
     bash -n "$script" || { echo "Syntax error in $script"; exit 1; }
 done
 
@@ -176,8 +191,8 @@ kill -0 "$PID" || { echo "HTTP server failed to start"; exit 1; }
 # Calculate artifact hashes
 ZIP_SHA256=$(sha256sum "$CANDIDATE_DIR/artifacts/player-server-2.10.2.zip" | awk '{print $1}')
 BUNDLE_SHA256=$(sha256sum "$CANDIDATE_DIR/deploy-ntv-bundle.sh" | awk '{print $1}')
-SERVER_SHA256=$(sha256sum "$CANDIDATE_DIR/update-2.10.2-server.sh" | awk '{print $1}')
-UI_SHA256=$(sha256sum "$CANDIDATE_DIR/update-3.0.50-ui.sh" | awk '{print $1}')
+SERVER_SHA256=$(sha256sum "$CANDIDATE_DIR/artifacts/update-2.10.2-server.sh" | awk '{print $1}')
+UI_SHA256=$(sha256sum "$CANDIDATE_DIR/artifacts/update-3.0.50-ui.sh" | awk '{print $1}')
 
 # Generate manifest
 cat > "$CANDIDATE_DIR/manifest.txt" <<EOF
@@ -198,8 +213,6 @@ Scripts (adapted from: $SCRIPT_SOURCE):
   deploy-ntv-bundle.sh (SHA-256: $BUNDLE_SHA256)
   update-2.10.2-server.sh (SHA-256: $SERVER_SHA256)
   update-3.0.50-ui.sh (SHA-256: $UI_SHA256)
-
-Public Assets: 32 files (production-provenance from .worktrees/next/src/public)
 
 HTTP Server:
   URL: http://192.168.1.120:8765
@@ -368,22 +381,19 @@ ls /tmp/ntv-qa-* # Should show no directories
 
 ### Script Source Authority
 
-- **Use latest reviewed rev2 scripts**: `ls -1td fleet-gitops/player-apps/releases/*-rev2 | head -1`
-- These are production-proven scripts with 2241+ total lines across three core scripts
+- **Use the latest actually published release**: `ls -1td fleet-gitops/player-apps/releases/*/ | head -1`.
+  A literal `*-rev2` glob is stale — no recent release uses that suffix, so it
+  silently returns a months-old script instead of erroring.
 - Never use generic templates — templates lack the battle-tested installer logic
-
-### Public Assets Authority
-
-- **Exactly 32 files** from `.worktrees/next/src/public`
-- Verified count is a hard requirement
-- Files must have matching SHA-256 against source
+- Component update scripts (`update-*-server.sh`/`update-*-ui.sh`) go in
+  `artifacts/` alongside their ZIP, not candidate root — see step 5's S3-base
+  mapping. `deploy-ntv-bundle.sh` alone goes at candidate root.
 
 ### No S3 Access During QA
 
 - All required assets are local:
   - Branch build: `builds/player-server-X.Y.Z.zip`
-  - Public assets: `.worktrees/next/src/public/`
-  - Scripts: `fleet-gitops/player-apps/releases/<rev2>/`
+  - Scripts: latest published release dir under `fleet-gitops/player-apps/releases/`
 - Downloading from S3 during QA preparation violates the isolation contract
 
 ### QA Device Baseline

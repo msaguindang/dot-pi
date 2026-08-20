@@ -56,6 +56,12 @@
 #                              an interactive typed confirmation. Never use this
 #                              without explicit human sign-off.
 #   --confirm-staged-overwrite required companion to --build-id
+#
+#   release.sh cleanup-branch --fix-branch NAME --repo PATH [--into next]
+#       Deletes a merged fix/feature branch everywhere: local worktree, local
+#       branch, and both remotes (origin, forgejo). Refuses if the branch isn't
+#       actually an ancestor of origin/<into>. Run this right after QA-gate
+#       step 9's merge — see SKILL.md.
 # =============================================================================
 set -euo pipefail
 
@@ -475,6 +481,21 @@ cmd_init() {
         fi
     fi
 
+    # Refuse to cut a release with a version *older* than the prior stable one
+    # for that component — e.g. a typo'd or stale --server-version/--ui-version.
+    # Equal is fine (reuse path below); only strictly-older is an error.
+    # Surfaced 2026-08-20: the fleet deployment scripts had the identical
+    # equality-only blind spot (silently downgrading devices on a stale URL) —
+    # this is the same class of bug one layer up, at release-authoring time.
+    if [[ "$SERVER_VERSION" != "$ps_ver" ]] && \
+       [[ "$(printf '%s\n%s' "$SERVER_VERSION" "$ps_ver" | sort -V | tail -n1)" == "$ps_ver" ]]; then
+        err "SERVER_VERSION $SERVER_VERSION is older than prior stable $ps_ver ($ps_ref) — refusing to cut a downgrade release. If this is intentional (a genuine rollback release), that is not what 'init' is for; use rollback-bundle.sh instead."
+    fi
+    if [[ "$UI_VERSION" != "$pu_ver" ]] && \
+       [[ "$(printf '%s\n%s' "$UI_VERSION" "$pu_ver" | sort -V | tail -n1)" == "$pu_ver" ]]; then
+        err "UI_VERSION $UI_VERSION is older than prior stable $pu_ver ($pu_ref) — refusing to cut a downgrade release. If this is intentional (a genuine rollback release), that is not what 'init' is for; use rollback-bundle.sh instead."
+    fi
+
     # --- SERVER_BUILD_ID / UI_BUILD_ID: freshness is decided by VERSION vs the
     # prior stable release, not by --skip-*-build. That flag only means "don't
     # re-run npm run build:prod, the zip's already on disk" (e.g. it was just
@@ -684,7 +705,9 @@ guard_prefix_empty() { # guard_prefix_empty <s3-dest-with-trailing-slash>
 # devices 404ing on that component.
 verify_prefix_has() { # verify_prefix_has <s3-dest-with-trailing-slash> <file>...
     local dest="$1"; shift
-    local listing; listing="$(aws s3 ls "$dest" 2>/dev/null || true)"
+    local listing
+    listing="$(aws s3 ls "$dest" 2>&1)" \
+        || err "Could not list $dest — aws s3 ls failed (auth/network issue, not a verified-missing file). Fix the underlying aws error and re-run; do not treat this as 'file is missing'. Output: $listing"
     local file
     for file in "$@"; do
         grep -q " ${file}\$" <<< "$listing" \
@@ -699,6 +722,53 @@ upload_group() { # upload_group <s3-dest-with-trailing-slash> <file>...
         info "Uploading $file -> $dest"
         aws s3 cp "$release_dir/$file" "$dest$file" || err "upload failed: $file"
     done
+}
+
+# =============================================================================
+# CLEANUP-BRANCH — deletes a merged fix/feature branch everywhere (local
+# worktree, local branch, both remotes). QA-gate step 9 requires this to run
+# right after the merge-into-next commit is pushed; historically this step was
+# skipped under release-urgency pressure and merged branches piled up
+# indefinitely on both repos. Refuses to delete anything not actually merged.
+# =============================================================================
+cmd_cleanup_branch() {
+    local FIX_BRANCH="" REPO="" INTO="next"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --fix-branch) FIX_BRANCH="${2:?}"; shift 2 ;;
+            --repo)       REPO="${2:?}"; shift 2 ;;
+            --into)       INTO="${2:?}"; shift 2 ;;
+            *) err "cleanup-branch: unknown option $1" ;;
+        esac
+    done
+
+    [[ -n "$FIX_BRANCH" ]] || err "--fix-branch is required"
+    [[ -n "$REPO"       ]] || err "--repo is required"
+    [[ -d "$REPO" ]] || err "repo not found: $REPO"
+
+    git -C "$REPO" fetch origin "$INTO" --quiet
+    git -C "$REPO" merge-base --is-ancestor "$FIX_BRANCH" "origin/$INTO" \
+        || err "$FIX_BRANCH is not an ancestor of origin/$INTO — refusing to delete. Merge it first."
+
+    local worktree_path
+    worktree_path="$(git -C "$REPO" worktree list --porcelain \
+        | awk -v b="refs/heads/$FIX_BRANCH" '/^worktree /{wt=$2} /^branch /{if ($2==b) print wt}')"
+    if [[ -n "$worktree_path" ]]; then
+        info "removing worktree: $worktree_path"
+        git -C "$REPO" worktree remove "$worktree_path"
+    fi
+
+    info "deleting local branch: $FIX_BRANCH"
+    git -C "$REPO" branch -D "$FIX_BRANCH" 2>/dev/null || true
+
+    for remote in origin forgejo; do
+        if git -C "$REPO" ls-remote --exit-code --heads "$remote" "$FIX_BRANCH" &>/dev/null; then
+            info "deleting $remote branch: $FIX_BRANCH"
+            git -C "$REPO" push "$remote" --delete "$FIX_BRANCH"
+        fi
+    done
+
+    info "cleanup-branch complete for $FIX_BRANCH"
 }
 
 # =============================================================================
@@ -878,6 +948,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     case "${1:-}" in
         init)    shift; cmd_init "$@" ;;
         publish) shift; cmd_publish "$@" ;;
+        cleanup-branch) shift; cmd_cleanup_branch "$@" ;;
         *) grep '^#' "$0" | sed 's/^# \{0,1\}//' | sed -n '2,40p'; exit 1 ;;
     esac
 fi
