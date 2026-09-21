@@ -50,15 +50,18 @@ This guide walks you through setting up the Discord bot and configuring the skil
   "channel_id": "YOUR_CHANNEL_ID_HERE",
   "vault_path": "~/Dropbox/Obsidian",
   "template_path": "z. System/Templates/Work Log.md",
-  "username_mapping": {
+  "display_name_overrides": {
     "your_discord_username": "Display Name"
   },
+  "self_username": "your_discord_username",
   "output_folder": "2. Areas/01 Work/01 Operations/Work Logs",
   "author_header_pattern": "### {author}",
   "empty_placeholder_pattern": "-\\s*",
   "empty_placeholder_text": "- "
 }
 ```
+
+> Author capture is name-agnostic — anyone who posts in the channel is picked up automatically (no allowlist to maintain). `display_name_overrides` is optional cosmetic relabeling only. `self_username` routes your own posts to `## My Focus` instead of `## Team Updates`.
 
 > **Note:** The Discord bot token is injected automatically via Infisical (`localhost:8080`). Do not add it to `config.json`.
 

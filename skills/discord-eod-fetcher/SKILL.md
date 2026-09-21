@@ -1,6 +1,6 @@
 ---
 name: discord-eod-fetcher
-description: Fetches End-of-Day (EOD) updates from the NTV360 Discord forum channel and injects them into Obsidian daily work logs. Runs automatically via systemd timer (9am, 2pm, 6pm). Handles late posts via 48h lookback, missing threads, partial team posts, and template-aware section parsing. Use this skill to manually trigger a fetch or check fetch status.
+description: Fetches End-of-Day (EOD) updates from the NTV360 Discord forum channel and injects them into Obsidian daily work logs. Runs automatically via systemd timer (9am, 2pm, 6pm). Handles late posts via 48h lookback, missing threads, and template-aware section parsing. Author name is pulled live from Discord (nickname/global name) — no manual username mapping. Use this skill to manually trigger a fetch or check fetch status.
 ---
 
 # Discord EOD Fetcher
@@ -35,20 +35,12 @@ python3 fetch_discord.py --channel <CHANNEL_ID> --lookback-days 5
 ## What it handles
 - **Late posts** — 48h lookback catches posts made the next day
 - **Missing threads** — logs explicitly, writes a note in the work log
-- **Partial posts** — collects what exists, completeness report shows who's missing
-- **Template posts** — parses **Done:**, **Tomorrow:**, **Blockers:** sections into Obsidian subsections
+- **Author names** — pulled live from Discord (guild nickname → global name → username). No allowlist to maintain — anyone who posts in the channel shows up, since the channel is already team-only.
+- **Template posts** — parses `Completed:`, `Tomorrow:`, `Blockers:` sections (bold or plain) into Obsidian subsections
 - **Re-runs** — idempotent, deduplicates before injecting
 
-## Output
-Each run appends an `## EOD Status (HH:MM)` block to the work log:
-```
-## EOD Status (18:00)
-- ✅ Posted: Arjay, Leigh
-- ⏳ Missing: Adrian, Rico
-```
-
 ## Configuration
-- `scripts/config.json` — channel ID, vault path, team username mappings, template sections
+- `scripts/config.json` — channel ID, vault path, template sections
 - `scripts/state.json` — auto-generated, tracks last run + processed message IDs (gitignored)
 
 ## Setup (first time)

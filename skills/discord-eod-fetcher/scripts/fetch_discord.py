@@ -8,10 +8,10 @@ Changes from v1:
   - Incremental message fetch — only new messages since last run
   - 48h lookback: checks today + yesterday on every run
   - Fuzzy thread name matching (6 format candidates)
-  - Template-aware section parsing (**Done:**, **Tomorrow:**, **Blockers:**)
+  - Template-aware section parsing (Completed:, Tomorrow:, Blockers: — bold optional)
   - Removed EOD keyword filter (silently dropped template posts)
-  - Unknown usernames logged as warnings, not silently dropped
-  - Per-run completeness report (who posted vs missing) appended to work log
+  - Author name = live Discord guild nickname / global name / username — no allowlist,
+    no manual mapping, anyone posting in the channel shows up automatically
   - Missing thread logged explicitly + note written to work log
 """
 
@@ -159,9 +159,12 @@ def fetch_messages(token: str, thread_id: str,
         for msg in data:
             if msg.get("author", {}).get("bot"):
                 continue
+            author = msg["author"]
+            display = (msg.get("member") or {}).get("nick") or author.get("global_name") or author["username"]
             messages.append({
                 "id":        msg["id"],
-                "author":    msg["author"]["username"],
+                "username":  author["username"],  # stable Discord handle, for display overrides
+                "author":    display,              # live nick/global-name fallback
                 "content":   msg["content"],
                 "timestamp": msg["timestamp"],
             })
@@ -192,7 +195,7 @@ def parse_template_sections(content: str, section_map: dict) -> dict[str, str]:
     current_lines: list[str] = []
 
     for line in content.split("\n"):
-        stripped = line.strip()
+        stripped = line.strip().strip("*").strip()
         matched = next((k for k in section_map if stripped.startswith(k)), None)
         if matched:
             if current_key is not None:
@@ -214,25 +217,67 @@ def parse_template_sections(content: str, section_map: dict) -> dict[str, str]:
     return result
 
 
+EOD_TAG_PAT = re.compile(r"^[-*]?\s*#?\s*EOD\b.*", re.IGNORECASE)
+
+
+def extract_eod_heading(raw: str) -> tuple[Optional[str], str]:
+    """Pull a leading 'EOD [date]' tag line off a post, returning it as a
+    heading string plus the remaining text. Must run before template-section
+    parsing, which otherwise silently drops anything before the first
+    matched section key (the EOD line lives before 'Completed:'/'Tomorrow:')."""
+    lines = raw.split("\n", 1)
+    first = lines[0].strip()
+    if not EOD_TAG_PAT.match(first):
+        return None, raw
+    heading_text = re.sub(r"^[-*]\s*", "", first).lstrip("#").strip()
+    rest = lines[1] if len(lines) > 1 else ""
+    return f"#### {heading_text}", rest.strip()
+
+
 def normalise_bullets(raw: str) -> str:
-    """Normalise bullet points from Discord formatting to Obsidian markdown."""
+    """Normalise bullet points from Discord formatting to Obsidian markdown.
+
+    Devs write bare label lines ("Player Swarm", "Done") followed by "* "/"- "
+    detail bullets with no leading whitespace to mark the nesting. A bare
+    label becomes a bold top-level bullet; bullets are indented one level
+    under the most recent label, so the outline the author intended actually
+    renders as one instead of a flat list. Explicit leading spaces (if an
+    author does use them) still add further indent on top of that.
+
+    A stray "EOD [date]" tag mid-content also becomes a #### heading — the
+    common case (a leading tag before template sections) is handled earlier
+    by extract_eod_heading, since template-section parsing would otherwise
+    silently drop it.
+    """
     lines = []
+    under_heading = False
     for line in raw.split("\n"):
         line = line.rstrip()
         if not line:
             continue
         leading = len(line) - len(line.lstrip(" "))
-        tabs = "\t" * (leading // 2)
+        extra_tabs = "\t" * (leading // 2)
         line = line.lstrip()
+        if EOD_TAG_PAT.match(line):
+            heading_text = re.sub(r"^[-*]\s*", "", line).lstrip("#").strip()
+            lines.append(f"#### {heading_text}")
+            under_heading = True
+            continue
         if re.match(r"^\*\*[^*]+\*\*:?\s*$", line):
-            pass  # bold header — preserve
-        elif line.startswith("* ") or line == "*":
+            lines.append(extra_tabs + line)  # bold header — preserve, bullets below nest under it
+            under_heading = True
+            continue
+        if line.startswith("* ") or line == "*":
             line = "- " + line[1:].lstrip()
         elif line.startswith("-") and not line.startswith("- "):
             line = "- " + line[1:].lstrip()
         elif not line.startswith("-"):
-            line = "- " + line
-        lines.append(tabs + line)
+            # Bare label line, no bullet marker — treat as a heading, not a detail.
+            lines.append(extra_tabs + f"- **{line}**")
+            under_heading = True
+            continue
+        indent = extra_tabs + ("\t" if under_heading else "")
+        lines.append(indent + line)
     return "\n".join(lines)
 
 
@@ -275,7 +320,9 @@ def inject_into_team_updates(content: str, header: str, new_text: str,
         else:
             pre, block, post = content[:team_start], content[team_start:], ""
 
-    section_pat = rf"({re.escape(header)}\n.*?)(?=\n#+|\Z)"
+    # Stop at the next heading of level <= 3 (a new author section), but not at a
+    # deeper #### heading (e.g. the "EOD [date]" tag) — that's still this author's content.
+    section_pat = rf"({re.escape(header)}\n.*?)(?=\n#{{1,3}}(?!#)|\Z)"
     match = re.search(section_pat, block, flags=re.DOTALL)
 
     if match:
@@ -295,6 +342,33 @@ def inject_into_team_updates(content: str, header: str, new_text: str,
     return pre + block + post
 
 
+def inject_into_my_focus(content: str, new_text: str) -> str:
+    """Append new_text under ## My Focus, deduplicating. Used for the vault owner's
+    own posts, which are personal planning, not a team member update."""
+    marker = "## My Focus"
+    start = content.find(f"\n{marker}")
+    if start != -1:
+        start += 1
+    else:
+        start = content.find(marker)
+    if start == -1:
+        return content  # no My Focus section — nothing sane to do, skip
+
+    after = start + len(marker)
+    nxt = re.search(r"\n## ", content[after:])
+    if nxt:
+        split = after + nxt.start()
+        pre, block, post = content[:start], content[start:split], content[split:]
+    else:
+        pre, block, post = content[:start], content[start:], ""
+
+    if new_text.strip() in block:
+        return content  # already injected
+
+    block = block.rstrip("\n") + f"\n{new_text}\n\n"
+    return pre + block + post
+
+
 def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> set[str]:
     """
     Process messages and inject into Obsidian work log.
@@ -302,27 +376,29 @@ def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> 
     """
     vault = os.path.expanduser(config.get("vault_path", "~/Dropbox/Obsidian"))
     output_folder = config.get("output_folder", "2. Areas/01 Work/Work Logs")
-    username_map: dict[str, str] = config.get("username_mapping", {})
     template_sections: dict[str, str] = config.get("template_sections", {})
     author_header_pat = config.get("author_header_pattern", "### {author}")
     empty_placeholder = config.get("empty_placeholder_pattern", r"- ")
+    display_overrides: dict[str, str] = config.get("display_name_overrides", {})
+    self_username: str = config.get("self_username", "")
 
     date_str = date_obj.strftime("%Y-%m-%d")
     file_path = os.path.join(vault, output_folder, f"{date_str} - Work Log.md")
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
-    # Group messages by display name
+    # Group messages by display name. Cosmetic override by stable username takes
+    # precedence over the live nick/global-name (handles cases like a handle-only
+    # nickname); anyone not in the override map still shows up under their live name.
+    # The vault owner's own posts (self_username) are personal planning, not a team
+    # update — routed into ## My Focus instead of a Team Updates header.
     author_content: dict[str, list[str]] = {}
+    self_content: list[str] = []
     for msg in messages:
-        username = msg["author"]
-        if username not in username_map:
-            print(f"[WARN] Unknown username '{username}' — add to config.json username_mapping",
-                  file=sys.stderr)
-            continue
-        display = username_map[username]
         raw = msg["content"].strip()
         if not raw:
             continue
+
+        eod_heading, raw = extract_eod_heading(raw)
 
         # Template-aware parsing if sections configured and present in post
         if template_sections and any(k in raw for k in template_sections):
@@ -339,7 +415,16 @@ def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> 
         else:
             formatted = normalise_bullets(raw)
 
-        if formatted:
+        if eod_heading:
+            formatted = f"{eod_heading}\n{formatted}" if formatted else eod_heading
+
+        if not formatted:
+            continue
+
+        if self_username and msg["username"] == self_username:
+            self_content.append(formatted)
+        else:
+            display = display_overrides.get(msg["username"], msg["author"])
             author_content.setdefault(display, []).append(formatted)
 
     # Create file from template if missing
@@ -362,6 +447,9 @@ def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> 
         combined = "\n\n".join(msgs)
         content = inject_into_team_updates(content, header, combined, empty_placeholder)
         posted.add(display)
+
+    if self_content:
+        content = inject_into_my_focus(content, "\n\n".join(self_content))
 
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -386,30 +474,6 @@ def write_missing_thread_note(date_obj: datetime, config: dict) -> None:
     if note.strip() not in content:
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(note)
-
-
-def write_completeness_report(date_obj: datetime, posted: set[str],
-                              config: dict) -> None:
-    """Append an EOD Status block showing who posted and who's missing."""
-    all_members = set(config.get("username_mapping", {}).values())
-    missing = all_members - posted
-    vault = os.path.expanduser(config.get("vault_path", "~/Dropbox/Obsidian"))
-    output_folder = config.get("output_folder", "2. Areas/01 Work/Work Logs")
-    date_str = date_obj.strftime("%Y-%m-%d")
-    file_path = os.path.join(vault, output_folder, f"{date_str} - Work Log.md")
-
-    if not os.path.exists(file_path):
-        return
-
-    ts = datetime.now().strftime("%H:%M")
-    block = (
-        f"\n## EOD Status ({ts})\n"
-        f"- ✅ Posted: {', '.join(sorted(posted)) or 'none'}\n"
-        f"- ⏳ Missing: {', '.join(sorted(missing)) or 'none'}\n"
-    )
-
-    with open(file_path, "a", encoding="utf-8") as f:
-        f.write(block)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -484,16 +548,13 @@ def main() -> None:
 
         if not msgs:
             print(f"[INFO] {date_str}: no new messages", file=sys.stderr)
-            write_completeness_report(date_obj, set(), config)
             continue
 
         print(f"[INFO] {date_str}: {len(msgs)} new message(s)", file=sys.stderr)
-        posted = save_to_obsidian(date_obj, msgs, config)
+        save_to_obsidian(date_obj, msgs, config)
 
         if newest_id:
             update_last_message_id(state, thread_id, newest_id)
-
-        write_completeness_report(date_obj, posted, config)
 
     mark_run(state)
     save_state(args.state, state)
