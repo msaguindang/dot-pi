@@ -1,0 +1,15 @@
+{
+  "messages": [{
+    "username": "me-stable",
+    "author": "My Live Name",
+    "content": "Tomorrow\n- finish the fixture"
+  }],
+  "config": {
+    "self_username": "me-stable",
+    "template": "## Team Updates\n\n### My Live Name\n- \n\n## My Focus\n- \n\n## Notes\n"
+  },
+  "expected": {
+    "contains": ["## My Focus", "- **Tomorrow**\n\t- finish the fixture"],
+    "absent": ["### My Live Name\n- **Tomorrow**"]
+  }
+}

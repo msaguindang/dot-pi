@@ -1,0 +1,14 @@
+{
+  "messages": [{
+    "username": "new-handle",
+    "author": "New Nickname",
+    "content": "Done\n* shipped the change"
+  }],
+  "config": {
+    "template": "## Team Updates\n\n### New Nickname\n- \n\n## My Focus\n- \n"
+  },
+  "expected": {
+    "contains": ["### New Nickname", "- **Done**\n\t- shipped the change"],
+    "absent": ["### None"]
+  }
+}

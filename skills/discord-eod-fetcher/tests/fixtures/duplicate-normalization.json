@@ -1,0 +1,14 @@
+{
+  "messages": [{
+    "username": "stable-user",
+    "author": "Stable User",
+    "content": "Done\n* same normalized bullet"
+  }],
+  "config": {
+    "template": "## Team Updates\n\n### Stable User\n- \n\n## My Focus\n- \n"
+  },
+  "expected": {
+    "contains": ["- **Done**\n\t- same normalized bullet"],
+    "count_once": "- **Done**\n\t- same normalized bullet"
+  }
+}
