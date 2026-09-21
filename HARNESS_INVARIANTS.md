@@ -42,9 +42,15 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 
 ## Delegation behavior
 
-- **INV-5** No agent instructs a subagent to **block on a supervisor** — subagents are autonomous by default and **return** genuinely-blocking decisions in their result (options + recommendation). Blocking decisions are surfaced in the result, never waited on. Check: agent `.md` files contain "NEVER block" language and no "wait for reply" patterns.
-- **INV-6** Agent autonomy: subagents do not block waiting for supervisor feedback. Genuinely-blocking decisions are surfaced in agent results with options + recommendation; the orchestrator/user decides and re-dispatches if needed. This constraint is enforced in agent `.md` documentation and validated during review.
-- **INV-7** Providers are utilized, none idle by design: anthropic (orchestrator + worker/planner/tui-worker/oracle/context-builder), google (linux-doctor/researcher), minimax (session-auditor).
+INV-5, INV-6, and the Pi-specific execution routes are defined by the canonical adapter in
+`APPEND_SYSTEM.md`. It requires autonomous subagents that return blocking decisions with
+options and recommendations, never supervisor waits; it also defines DIRECT/R0, ordinary
+R1 worker routing, the narrow REV exception, R2 independent review, R3 oracle/preflight and
+pre-irreversible review, CHAIN, artifact verification, and post-device probes. Shared
+invariants remain in `~/.agents/standards/orchestration-policy.md`.
+
+- **INV-5/6** Check the adapter and agent docs for autonomous escalation (no supervisor wait).
+- **INV-7** Providers are utilized according to the model table above.
 
 ## Cost observability
 
@@ -53,10 +59,8 @@ assertion + how to check it. Run the `pi-harness-auditor` Claude Code agent to v
 
 ## Process discipline
 
-- **INV-10** Review-as-default-gate points to canonical rules (see `~/.agents/standards/orchestration-policy.md`). Explicitly distinguish R2 post-implementation review from R3 pre-irreversible review. Irreversible/destructive work (deploys, device imaging) is reviewed against an acceptance spec **before** the irreversible step — not on user request. Review without a spec is theater.
-- **INV-11** Verify outcomes, not operations: tool exit 0 ≠ task success. Inspect the produced artifact against its acceptance criteria; report verified-vs-assumed, never present mechanical success as semantic success.
-- **INV-13** Subagent success claims are unverified until the orchestrator confirms the claimed artifacts exist (files on disk, worktrees/tags in git, objects on S3). A result message is a claim, not evidence. Origin: `session-20260702-incomplete-worktree-dispatch` tag in player-server — worker claimed 2 worktrees + build zips; reality had 1 worktree and 0 zips. For device deployments this extends to a post-deploy probe of actual device state (rpi-doctor). Check: APPEND_SYSTEM.md Orchestration & Risk Tiers contains the verification + probe clauses.
-- **INV-18** REV mode remains an R1 fast path shorthand. Normal R1/R2/R3 behavior is unchanged. Check: orchestration-policy and compile-workflow tests.
+- **INV-10/11/13** Review timing, outcome/evidence verification, artifact-claim verification, and device post-state probes are canonical in `~/.agents/standards/orchestration-policy.md` and the Pi execution adapter `APPEND_SYSTEM.md`.
+- **INV-18** REV remains a narrow R1 fast-path shorthand; normal R1/R2/R3 behavior is unchanged. Check: the adapter and compile-workflow tests.
 
 ## Extension load order
 
