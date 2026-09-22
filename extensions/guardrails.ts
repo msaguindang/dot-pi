@@ -130,6 +130,9 @@ const pendingBackups = new Map<string, string | "NEW_FILE">();
 export default function (pi: ExtensionAPI) {
   // ── Universal Dry-Run/Validation Gateway ──────────────────────────────
   pi.on("tool_call", async (event, ctx) => {
+    if (["ctx_execute", "ctx_execute_file", "ctx_batch_execute"].includes(event.toolName) && event.input.timeout === undefined) {
+      event.input.timeout = 60000;
+    }
     if (event.toolName === "edit" || event.toolName === "write") {
       const targetFile = event.input.path as string;
       if (!targetFile) return;

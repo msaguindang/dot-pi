@@ -15,7 +15,7 @@ import guardrailsExtension from "../extensions/guardrails.ts";
 // repoHasProtectedScripts git-ls-files check and the branch/protected-path
 // gating around isCommit/isPush that the unit-level sanitizer tests don't
 // reach.
-function getBashHook() {
+function getToolCallHooks() {
   const toolCallHandlers: Array<(event: any, ctx: any) => any> = [];
   const mockPi = {
     on: (name: string, handler: (event: any, ctx: any) => any) => {
@@ -27,7 +27,15 @@ function getBashHook() {
   // gateway, second is the bash-command guard. A third registration on
   // "tool_result" (unrelated) must NOT be counted here — filter by event
   // name, don't just index into every registration.
-  return toolCallHandlers[1];
+  return toolCallHandlers;
+}
+
+function getBashHook() {
+  return getToolCallHooks()[1];
+}
+
+function getTimeoutHook() {
+  return getToolCallHooks()[0];
 }
 
 function setupProtectedRepoOnMain() {
@@ -46,6 +54,19 @@ function setupRepo() {
   execSync("git config user.name 'Test'", { cwd: dir, stdio: "ignore" });
   return dir;
 }
+
+test("ctx execution tools receive bounded default timeout without overwriting explicit timeout", async () => {
+  const hook = getTimeoutHook();
+  for (const toolName of ["ctx_execute", "ctx_execute_file", "ctx_batch_execute"]) {
+    const event = { toolName, input: {} as Record<string, unknown> };
+    await hook(event, {});
+    assert.equal(event.input.timeout, 60000);
+
+    const explicit = { toolName, input: { timeout: 1234 } as Record<string, unknown> };
+    await hook(explicit, {});
+    assert.equal(explicit.input.timeout, 1234);
+  }
+});
 
 test("isValidReviewMarker", () => {
   assert.strictEqual(isValidReviewMarker("Reviewed-by: reviewer/abcdef12"), true);

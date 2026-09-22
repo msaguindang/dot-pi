@@ -46,7 +46,7 @@ Required files — write these yourself:
 cp ~/.pi/agent/settings.json.example ~/.pi/agent/settings.json
 ```
 
-`settings.json` is gitignored — pi writes runtime state back to it on every session (last model used, changelog version, etc). The example file has a working starting default (`anthropic/claude-sonnet-4-6`, medium thinking, all extensions, Tokyo Night theme) — the orchestrator model is NOT pinned/enforced by the harness (INV-1 retired 2026-07-13); pick whatever fits your context-window and cost tradeoff. Copy the example once; pi owns it from there.
+`settings.json` is gitignored — pi writes runtime state back to it on every session (last model used, changelog version, etc). The example file has a working starting default (`anthropic/claude-sonnet-4-6`, medium thinking, all extensions, Tokyo Night theme) — the orchestrator model is NOT pinned/enforced by the harness; pick whatever fits your context-window and cost tradeoff. Copy the example once; pi owns it from there.
 
 ### 4. Set up providers
 
@@ -151,12 +151,12 @@ Or set a persistent fallback in `settings.json`:
 
 ## Model Routing
 
-Orchestrator model is set in `settings.json` and is **not pinned by the harness** — switch freely (`/model` mid-session, or edit the file directly) based on your own context-window/cost/capability tradeoff. Worker/subagent models are set per-agent in `agents/*.md` frontmatter and ARE pinned (see `HARNESS_INVARIANTS.md`).
+Orchestrator model is set in `settings.json` and is **not pinned by the harness** — switch freely (`/model` mid-session, or edit the file directly) based on your own context-window/cost/capability tradeoff. Worker/subagent models are set per-agent in `agents/*.md` frontmatter and ARE pinned according to the model table.
 
 | Config | Controls | Enforced? |
 |---|---|---|
 | `settings.json` → `defaultProvider` + `defaultModel` | Orchestrator (main session model) | No — user's choice |
-| `agents/<name>.md` → `model:` frontmatter | Per-agent model override for subagents | Yes — audited (INV-2/3/4) |
+| `agents/<name>.md` → `model:` frontmatter | Per-agent model override for subagents | Yes — checked against the model table |
 
 Subagent dispatch is handled via `APPEND_SYSTEM.md` routing rules. The orchestrator decides when to delegate based on prompt context — no automatic prompt classification is applied.
 
@@ -195,7 +195,6 @@ Loaded automatically at startup via `settings.json` `extensions` array.
 | `adjutant-greeting.ts` | Startup greeting with session context |
 | `bash-truncator.ts` | Truncates oversized bash output to prevent context overflow |
 | `context-resolver.ts` | Resolves `@`-includes in AGENTS.md at load time |
-| `cost-tracker.ts` | Tracks per-turn + per-session token cost in TUI status bar |
 | `extension-watcher.ts` | Detects stale extension cache, warns before long sessions |
 | `first-run.ts` | One-time onboarding wizard on fresh installs |
 | `gmail.ts` | Gmail API integration (requires Google OAuth) |
@@ -203,6 +202,7 @@ Loaded automatically at startup via `settings.json` `extensions` array.
 | `session-name-status.ts` | Shows active session name in TUI status bar |
 | `tool-cache.ts` | Caches repeated tool results within a session |
 | `tui-dryrun.ts` | ANSI validation guard — blocks TUI edits without dry-run verification |
+| `tool-loader.ts` | Keeps a minimal default tool set active and searches/activates other registered tools on demand |
 | `atuin.ts` | *(disabled by default)* Tracks pi bash commands in [Atuin](https://github.com/atuinsh/atuin) history with author `pi`. Requires `atuin` installed and `atuin hook install pi` run. Enable by changing `-extensions/atuin.ts` to `+extensions/atuin.ts` in `settings.json`. |
 
 To disable an extension, prefix its entry with `-` in `settings.json`:
@@ -210,6 +210,10 @@ To disable an extension, prefix its entry with `-` in `settings.json`:
 ```json
 "-extensions/gmail.ts"
 ```
+
+### Dynamic tool loading
+
+`tool-loader.ts` keeps the policy-required tools and `search_tools` active while leaving rarely used registered tools inactive; `subagent` is activated on demand by asking `search_tools` for delegation. It also strips skill descriptions from the startup catalog while preserving names and locations; ask `search_tools` for a skill to retrieve its description and location. Matching tools are activated additively; all tools remain registered and discoverable.
 
 ---
 
@@ -352,7 +356,7 @@ Already in `.gitignore`, but worth knowing:
 | `settings.json` | Pi rewrites this every session (last model, changelog version) — use `settings.json.example` to ship defaults |
 | `auth.json` | API credentials |
 | `sessions/` | Session transcripts |
-| `cost-history.jsonl` | Machine-specific cost data |
+| `cost-history.jsonl` | Retained legacy machine-specific cost data; no active producer after cost-tracker retirement |
 | `run-history.jsonl` | Runtime artifacts |
 | `usage-data/` | Pi-insights reports |
 | `logs/` | Debug logs |

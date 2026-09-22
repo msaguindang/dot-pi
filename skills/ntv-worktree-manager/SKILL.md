@@ -1,60 +1,21 @@
 ---
 name: ntv-worktree-manager
-description: Orchestrate git worktree creation, synchronization, and setup across the NTV ecosystem (api-v1, dashboard-v1, player-server, player-ui). Use whenever the user starts work on a new ticket, story, or bug.
+description: Orchestrate synchronized NTV worktrees across api-v1, dashboard-v1, player-server, and player-ui.
 ---
 
-# NTV Worktree Manager
+# NTV worktree manager
 
-A skill for managing synchronized git worktrees across the four core NTV repositories. Worktrees are created **inside** each repo at `<repo>/.worktrees/<branch>` — git-native and automatically gitignored.
+Read `APPEND_SYSTEM.md` for route selection and `~/.agents/standards/orchestration-policy.md`
+for shared safeguards. This skill owns only NTV worktree setup; it does not choose the risk
+tier or duplicate delegation/review rules.
 
-## When to use this skill
-- Starting a new ticket (`feat`, `fix`, `hotfix`, `test`). (Do NOT use for `REV` fast path; any ticket disqualifies REV, refer to orchestration-policy).
-- Setting up a new worktree for a specific task.
-- Ensuring repositories are fetched and initialized after creating a worktree.
+Use this skill before starting an NTV ticket, feature, or bug (the narrow REV path is exempt).
+Ask for ticket ID, description, type (`feat`, `fix`, `hotfix`, `test`), and selected repos.
+Construct `[type]/[ID]-[description]`, verify `NTV_DIR`, fetch origin, and invoke
+`scripts/manage_worktrees.sh`. Never overwrite an existing worktree without explicit
+confirmation. State baseline, branch, order, conflict points, and push/merge boundary before
+creating an integration worktree.
 
----
-
-## Workflow: Create/Sync Worktrees for a Ticket
-
-This workflow uses `NTV_DIR` from the environment (must be exported — the script exits with an error if unset).
-
-1.  **Ask for Details**: Prompt the user for:
-    - **Ticket ID** (e.g., `456`)
-    - **Description** (e.g., `fix-auth-bug`)
-    - **Type** (e.g., `feat`, `fix`, `hotfix`)
-    - **Selected Repos** (Which of `api`, `dash`, `server`, `ui` need the worktree?)
-2.  **Construct Branch Name**: Formulate the standard branch: `[type]/[ID]-[Description]` (e.g., `fix/456-fix-auth-bug`).
-3.  **Execute**: Invoke `scripts/manage_worktrees.sh` with the ticket details.
-4.  **Report**: Summarize the created directories and next steps.
-
-### Resulting structure
-
-```
-$NTV_DIR/
-├── api-v1/
-│   └── .worktrees/
-│       └── fix/456-fix-auth-bug/      ← worktree
-├── dashboard-v1/
-│   └── .worktrees/
-│       └── fix/456-fix-auth-bug/
-├── player-server/
-│   └── .worktrees/
-│       └── fix/456-fix-auth-bug/
-└── player-ui/
-    └── .worktrees/
-        └── fix/456-fix-auth-bug/
-```
-
-`.worktrees/` is gitignored by default (git adds it to `.git/info/exclude` automatically for worktrees).
-
----
-
-## Safety Guidelines
-- **NEVER** overwrite an existing worktree directory without explicit user confirmation.
-- **ALWAYS** perform a `git fetch origin` before creating a new worktree to ensure the base branch is up-to-date.
-- **VERIFY** `NTV_DIR` is set and all paths resolve before executing.
-- **USE** the provided `manage_worktrees.sh` script to maintain consistency.
-- **STATE THE PLAN FIRST** — before creating an integration worktree/branch, or cherry-picking/merging any approved commits into it, state the concrete plan unprompted: baseline commit, branch name, cherry-pick/merge order, known conflict points, and the push/merge boundary (what gets pushed/merged and when). Get explicit approval before executing. This is a default step, not something to wait to be asked for.
-
-## Bundled Resources
-- `scripts/manage_worktrees.sh` — executes all git operations
+Worktrees are created under `$NTV_DIR/<repo>/.worktrees/<branch>`. Verify every path and
+report created directories and next steps. Deployment/device safeguards remain in the Pi
+adapter and the shared policy, not here.

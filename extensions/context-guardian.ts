@@ -14,8 +14,8 @@
  * because context had grown past the point where the Anthropic prompt-cache
  * TTL survives an idle subagent `wait`, forcing full uncached resends.
  *
- * This extension checks context usage on every message_end (same event
- * cost-tracker.ts hooks) and proactively asks the harness to compact well
+ * This extension checks context usage on every message_end and proactively
+ * asks the harness to compact well
  * before that reactive threshold — at `contextGuardian.proactiveCompactionRatio`
  * (default 0.6) of the harness's own reactive ratio.
  *

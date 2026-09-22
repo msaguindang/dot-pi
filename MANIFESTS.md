@@ -1,6 +1,6 @@
 # Acceptance Manifests
 
-Checklists for the post-mutation review gate (INV-10). The `reviewer` agent must be passed the relevant manifest alongside the diff/artifact. A review without a manifest is theater — it checks nothing specific.
+Checklists for the post-mutation review gate. The `reviewer` agent must be passed the relevant manifest alongside the diff/artifact. A review without a manifest is theater — it checks nothing specific.
 
 Reference: `~/.agents/standards/orchestration-policy.md` Post-Mutation Review Gate section.
 
@@ -59,13 +59,13 @@ For changes to `~/.pi/agent/extensions/*.ts` or TUI-rendering code.
 
 - [ ] Extension loads without TypeScript errors (`tsc --noEmit` or bun type-check passes)
 - [ ] API signatures verified against actual `.d.ts` files in the pi package (`~/.nvm/.../node_modules/@earendil-works/pi-coding-agent/`) — no assumed method signatures
-- [ ] Extension load order in `settings.json` respects declared invariants (INV-12, INV-13, INV-14 in `HARNESS_INVARIANTS.md`)
+- [ ] Extension load order in `settings.json` preserves direct editor-before-greeting and other documented ordering checks
 - [ ] No `TrueColor` (24-bit RGB) ANSI hardcoded — use `ctx.ui.theme.*` methods for color styling (16/256-color safe)
 - [ ] If using `setWidget`: factory form used (not string array form) for any colored widget content
 - [ ] Factory form captures live Map by reference — `render()` always reads current state
 - [ ] Spinner animations: frame advance and `requestRender()` are co-located in same interval loop
 - [ ] `adjutant-editor.ts` interceptor set at TOP of `session_start` before any other handler returns
 - [ ] `tui-dryrun.ts` gate honored: no TUI edits shipped without dry-run verification pass
-- [ ] `harness-audit.sh` passes all invariant checks after change
+- [ ] All documented safety and behavior checks pass after change
 - [ ] If extension was disabled (`-extensions/...`), README.md extension table updated to reflect status
 - [ ] If new extension added to `settings.json`, README.md extension table row added with purpose description

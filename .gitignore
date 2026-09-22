@@ -15,6 +15,7 @@ npm/
 scout-scanner.sh
 
 # Local runtime state, database, and telemetry logs
+# Retained legacy data; no active producer after cost-tracker retirement.
 cost-history.jsonl
 cost-sync-status.json
 logs/

@@ -11,7 +11,7 @@ Add startup-time context-profile selection to the pi harness so that the set of 
 - `extensions/context-resolver.ts` fires on `before_agent_start`, receives `event.systemPrompt`, scans it line-by-line for `@path` directives, and expands them by inline-replacing with file content. Expansion is **single-pass** (files included via `@` inside an included file are NOT re-expanded).
 - `AGENTS.md` (harness root) currently has 5 `@` lines: identity, environment, long-term, code-style, tool-policy. This is the only harness-controlled system-prompt file. `APPEND_SYSTEM.md` (orchestration rules, gates, routing) is already always loaded by pi core and is NOT processed by `context-resolver.ts`.
 - Ancestor AGENTS.md files (`/AGENTS.md`, `/home/codeweaver/AGENTS.md`) are injected by pi core from ancestor directories of CWD. They appear as **plain text** in `event.systemPrompt`—no `@` markers—so `context-resolver.ts` cannot filter or strip them. This is a hard constraint: profile selection controls **only the harness AGENTS.md layer**, not ancestor project files.
-- No `tests/` directory exists; no bats suite. Validation is done via `harness-audit.sh` (bash assert loop, exits non-zero on failure).
+- No `tests/` directory exists; no bats suite. Validation uses targeted file, JSON, and search checks.
 - `MANIFESTS.md` Section 3 ("Extension / TUI Manifest") governs any changes to `extensions/*.ts`.
 
 ---
@@ -38,7 +38,7 @@ Add startup-time context-profile selection to the pi harness so that the set of 
   @~/.agents/context/long-term-ntv-v2.md
   @~/.agents/standards/code-style.md
   ```
-- **Acceptance**: All referenced files exist at those paths (validate in Task 6 audit check).
+- **Acceptance**: All referenced files exist at those paths (validate during the final manual checks).
 
 - **File**: `~/.pi/agent/profiles/pi-harness.md` (new)
 - **Changes**: Pi extension patterns context only.
@@ -164,102 +164,7 @@ Add startup-time context-profile selection to the pi harness so that the set of 
 
 ---
 
-### 6. Add profile invariants to `harness-audit.sh` (INV-15, INV-16, INV-17)
-- **File**: `~/.pi/agent/harness-audit.sh`
-- **Changes**: Add a new `== Context profile ==` section after `== Extension hygiene ==`:
-
-  **INV-15** — all 5 profile files exist:
-  ```bash
-  echo "== Context profile =="
-  PROFILES_DIR="${script_dir}/profiles"
-  _required_profiles=("default.md" "ntv.md" "pi-harness.md" "desktop.md" "brainstorm.md")
-  for _p in "${_required_profiles[@]}"; do
-      if [[ -f "${PROFILES_DIR}/${_p}" ]]; then
-          pass "INV-15 profiles/${_p} exists"
-      else
-          fail "INV-15 profiles/${_p} MISSING"
-      fi
-  done
-  ```
-
-  **INV-15b** — every `@` reference inside each profile file resolves on disk:
-  ```bash
-  while IFS= read -r _pfile; do
-      while IFS= read -r _inc_line; do
-          _inc_path="${_inc_line:1}"  # strip leading @
-          _inc_abs="${_inc_path/\~/$HOME}"
-          if [[ -e "$_inc_abs" ]]; then
-              pass "INV-15b ${_pfile##*/}: ${_inc_path} resolves"
-          else
-              fail "INV-15b ${_pfile##*/}: ${_inc_path} MISSING on disk"
-          fi
-      done < <(grep -E '^@' "$_pfile" 2>/dev/null || true)
-  done < <(find "$PROFILES_DIR" -name "*.md" -type f 2>/dev/null)
-  ```
-
-  **INV-16** — tool-policy.md is in AGENTS.md immutable core (not profile-delegated):
-  ```bash
-  if grep -qE '^@.*tool-policy\.md' "${script_dir}/AGENTS.md" 2>/dev/null; then
-      pass "INV-16 tool-policy.md present in AGENTS.md immutable @include"
-  else
-      fail "INV-16 AGENTS.md missing @~/.agents/standards/tool-policy.md — must be in immutable core"
-  fi
-  ```
-
-  **INV-17** — if `contextProfile` is set in settings.json, it must be a known value:
-  ```bash
-  _ctx_profile="$(python3 -c "import json,sys; d=json.load(open('${SETTINGS}')); print(d.get('contextProfile',''))" 2>/dev/null || echo "")"
-  _valid_profiles=("default" "ntv" "pi-harness" "desktop" "brainstorm")
-  if [[ -z "$_ctx_profile" ]]; then
-      pass "INV-17 contextProfile not set in settings.json (PI_PROFILE env is primary)"
-  else
-      _found=false
-      for _vp in "${_valid_profiles[@]}"; do
-          [[ "$_ctx_profile" == "$_vp" ]] && _found=true && break
-      done
-      if $_found; then
-          pass "INV-17 contextProfile='${_ctx_profile}' is a valid profile name"
-      else
-          fail "INV-17 contextProfile='${_ctx_profile}' is not a recognized profile (${_valid_profiles[*]})"
-      fi
-  fi
-  ```
-
-- **Acceptance**: `./harness-audit.sh` passes all existing invariants AND the 3 new ones (INV-15, INV-16, INV-17). Exit code 0.
-
----
-
-### 7. Document INV-15/16/17 in `HARNESS_INVARIANTS.md`
-- **File**: `~/.pi/agent/HARNESS_INVARIANTS.md`
-- **Changes**: Add a new `## Context profile` section after `## Extension load order`:
-  ```markdown
-  ## Context profile
-
-  - **INV-15** `profiles/` directory exists with all five profile files: `default.md`, `ntv.md`,
-    `pi-harness.md`, `desktop.md`, `brainstorm.md`. Every `@` include inside each profile must
-    resolve to an existing file on disk. Check: `harness-audit.sh` INV-15/15b.
-  - **INV-16** `~/.agents/standards/tool-policy.md` must remain as a direct `@include` in
-    `AGENTS.md` (not delegated to a profile file). It is the immutable safety core and must load
-    in every profile. Check: grep AGENTS.md for `@.*tool-policy.md`.
-  - **INV-17** If `contextProfile` is set in `settings.json`, its value must be one of the five
-    known profile names. The `PI_PROFILE` env var takes priority over this key at runtime.
-    Check: `harness-audit.sh` INV-17. Note: changing either key mid-session has no effect; the
-    system prompt is fixed once a session starts. A session restart is required for any profile
-    change to take effect.
-
-  **Ancestor injection caveat (documented limitation):** Pi core injects AGENTS.md files from
-  ancestor directories (`/AGENTS.md`, `/home/codeweaver/AGENTS.md`) as plain text before
-  `context-resolver.ts` runs. These files contain NTV project overview, skills list, and tool
-  safety pointers that `context-resolver.ts` cannot suppress. Profile selection controls only
-  the `~/.pi/agent/AGENTS.md` layer. For a truly minimal brainstorm context, the NTV skills
-  list and project overview from `/AGENTS.md` will still be present. This is a pi-core
-  limitation, not addressable at the extension layer.
-  ```
-- **Acceptance**: `HARNESS_INVARIANTS.md` contains the new section with all three invariant entries and the ancestor caveat.
-
----
-
-### 8. Add profile usage note to `README.md`
+### 7. Add profile usage note to `README.md`
 - **File**: `~/.pi/agent/README.md`
 - **Changes**: Add a `## Context Profiles` section (or subsection under System Prompt / context-resolver entry):
   - Explain the 5 profiles and what each loads
@@ -271,12 +176,13 @@ Add startup-time context-profile selection to the pi harness so that the set of 
 
 ---
 
-### 9. Validate with `harness-audit.sh` and manual spot-check
+### 8. Validate with manual spot-checks
 - **Commands to run**:
   ```bash
   cd ~/.pi/agent
-  ./harness-audit.sh
-  # Must exit 0 with all INV-1..17 passing
+  # Validate profile files, references, settings JSON, and retired artifacts manually.
+  python3 -m json.tool settings.json >/dev/null
+  # Confirm both retired audit artifacts are absent.
 
   PI_PROFILE=ntv pi --dry-run   # if pi supports dry-run, or
   PI_PROFILE=ntv pi             # start session, check greeting notify banner
@@ -297,7 +203,7 @@ Add startup-time context-profile selection to the pi harness so that the set of 
 
 ---
 
-### 10. (Optional) Add thin convenience skill for profile announcement
+### 9. (Optional) Add thin convenience skill for profile announcement
 - **File**: `~/.pi/agent/skills/set-profile/SKILL.md` (new — optional)
 - **Changes**: A skill that:
   - Accepts a profile name argument
@@ -314,8 +220,6 @@ Add startup-time context-profile selection to the pi harness so that the set of 
 - `~/.pi/agent/AGENTS.md` — Replace 5 `@` include lines with 2 (immutable tool-policy core + profile sentinel)
 - `~/.pi/agent/extensions/context-resolver.ts` — Add recursive expansion, profile reading, profile-line substitution, profile notify
 - `~/.pi/agent/settings.json.example` — Add documented `contextProfile` key
-- `~/.pi/agent/harness-audit.sh` — Add INV-15/15b/16/17 checks
-- `~/.pi/agent/HARNESS_INVARIANTS.md` — Document new invariants and ancestor caveat
 - `~/.pi/agent/README.md` — Add Context Profiles section
 
 ## New Files
@@ -332,11 +236,9 @@ Add startup-time context-profile selection to the pi harness so that the set of 
 Task 1 (profiles/) must complete before Task 2 (AGENTS.md restructure)
 Task 1 must complete before Task 3 (recursive expansion)
 Task 2 + Task 3 must complete before Task 4 (profile selection logic)
-Task 4 must complete before Task 9 (validation)
-Task 6 (harness-audit.sh) can be done in parallel with Tasks 3–5
-Task 7 (HARNESS_INVARIANTS.md) can be done in parallel with Tasks 3–6
-Task 8 (README) can be done last — no functional dependency
-Task 10 (skill) is optional, no dependency
+Task 4 must complete before Task 8 (validation)
+Task 7 (README) can be done last — no functional dependency
+Task 9 (skill) is optional, no dependency
 ```
 
 ---
@@ -366,7 +268,7 @@ If a profile file accidentally `@includes` itself (or a cycle forms), the recurs
 
 **Impact**: Brainstorm profile is not truly "context-free"; NTV skills list and project overview will be present. This is acceptable for the current phase. A future enhancement could launch `pi` from a neutral CWD where pi does not walk up to `/AGENTS.md`, but even then the root-level file will likely still be loaded.
 
-**Mitigation for now**: Document clearly in `HARNESS_INVARIANTS.md` and `README.md`. Do not promise a fully clean brainstorm context.
+**Mitigation for now**: Document clearly in `README.md`. Do not promise a fully clean brainstorm context.
 
 ### Risk 5: `long-term.md` vs. granular files in `default.md`
 The current AGENTS.md references `@~/.agents/context/long-term.md`, which itself is a redirect file saying "use pi-knowledge-search for specific details." The `ntv.md` profile references `long-term-ntv-v1.md` and `long-term-ntv-v2.md` directly. This is correct but creates a content mismatch — `default` profile includes the generic redirect, while `ntv` includes the actual NTV details.

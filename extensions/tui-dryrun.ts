@@ -31,7 +31,6 @@ const TUI_EXTENSION_FILES = [
 	"adjutant-editor.ts",
 	"adjutant-greeting.ts",
 	"session-name-status.ts",
-	"cost-tracker.ts",
 ];
 
 function isTuiFile(filePath: string): boolean {

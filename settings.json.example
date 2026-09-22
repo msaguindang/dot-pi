@@ -29,12 +29,10 @@
   "extensions": [
     "+extensions/adjutant-editor.ts",
     "+extensions/guardrails.ts",
-    "+extensions/harness-audit-gate.ts",
     "+extensions/bash-truncator.ts",
     "+extensions/tool-cache.ts",
     "+extensions/gmail.ts",
     "+extensions/adjutant-greeting.ts",
-    "+extensions/cost-tracker.ts",
     "+extensions/first-run.ts",
     "+extensions/session-name-status.ts",
     "+extensions/compile-workflow.ts",
@@ -42,7 +40,8 @@
     "+extensions/tui-dryrun.ts",
     "+extensions/extension-watcher.ts",
     "+extensions/cyber-loader.ts",
-    "-extensions/atuin.ts"
+    "-extensions/atuin.ts",
+    "+extensions/tool-loader.ts"
   ],
   "themes": [
     "-themes/catppuccin-mocha.json",

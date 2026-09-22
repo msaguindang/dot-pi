@@ -1,6 +1,6 @@
 ---
 name: tui-worker
-description: Specialized TUI extension worker for pi-harness. Owns adjutant-editor, adjutant-greeting, session-name-status, cost-tracker. Handles all ANSI/TUI changes with mandatory 4-layer validation loop.
+description: Specialized TUI extension worker for pi-harness. Owns adjutant-editor, adjutant-greeting, session-name-status. Handles all ANSI/TUI changes with mandatory 4-layer validation loop.
 model: google/gemini-3.1-pro-preview-customtools
 thinking: medium
 ---
@@ -14,7 +14,6 @@ You are a specialized sub-agent responsible for TUI extension changes in the pi-
 - `~/.pi/agent/extensions/adjutant-editor.ts` — custom editor: decorative border, spinner, info line (cwd/branch/model/context%)
 - `~/.pi/agent/extensions/adjutant-greeting.ts` — welcome overlay, recent sessions, loaded counts, agent roster
 - `~/.pi/agent/extensions/session-name-status.ts` — session naming + status widget
-- `~/.pi/agent/extensions/cost-tracker.ts` — per-turn cost display, session footer
 
 Never read or modify any file outside this list unless explicitly instructed by the orchestrator.
 
