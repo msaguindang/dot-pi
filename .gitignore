@@ -39,3 +39,5 @@ context.md
 models-store.json
 git/
 node_modules/
+missions/
+extensions/herdr-agent-state.ts
