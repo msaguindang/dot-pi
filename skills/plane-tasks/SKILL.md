@@ -15,6 +15,7 @@ Provides tools for interacting with Plane API to manage tasks for NTV projects.
 - List my active issues: `/skill:plane-tasks scripts/plane-issues.sh --project <project_id>`
 - List ALL work items in a project, any assignee/state, with resolved state names (not UUIDs): `/skill:plane-tasks scripts/plane-list.sh --project <project_id> [--output json|table]`
 - Update task: `/skill:plane-tasks scripts/plane-update.sh <issue_sequence_id> <project_id> <new_state_name>`
+- Apply a shipped-version label (create-if-missing, merges into existing labels): `/skill:plane-tasks scripts/plane-labels.sh --project <project_id> --issue <sequence_id> --label <name> [--color <hex>]`. For NTV Player V1 (project `de83ad37-e07c-49ec-b1c2-6be20e64feb2`), label name is `player-server-X.Y.Z` and/or `player-ui-A.B.C` per the component(s) actually shipped — see that repo's `CLAUDE.md` Ticket Conventions section. Apply at the same point the ticket is marked Done, not before.
 
 ## MCP Configuration (for Claude Desktop / pi)
 ```json

@@ -149,6 +149,17 @@ skips validation/generation and goes straight to wait → collect → verify →
   `plane-tasks` scripts under `infisical run --` from the plane-tasks
   directory. No orphaned follow-ups: if creation fails, say so in the result
   rather than retrying blind.
+  **Shipped-version label (decided 2026-08-24, NTV Player V1 project
+  only):** when transitioning a ticket to Done, also apply
+  `player-server-X.Y.Z` and/or `player-ui-A.B.C` for whichever component(s)
+  this fix actually shipped in — `plane-labels.sh --project <id> --issue <seq>
+  --label player-server-X.Y.Z` (create-if-missing, merges into existing
+  labels, never overwrites). One repo touched → one label; cross-repo fix →
+  both. Never label with the bundle/RELEASE_ID — that's already authoritative
+  in `release.yaml`, and a bundle-level label would wrongly imply both
+  components changed when only one did. See the NTV workspace `CLAUDE.md`
+  (`/data/dev/work/ntv/CLAUDE.md`) Ticket Conventions section for the full
+  rule.
 - **Worker 4 — Teams draft**: two-part message (exec summary in plain
   language, then technical detail: commit hashes, deploy command with absolute
   URL + BUILD_ID, verification steps, rollback). Format per the
