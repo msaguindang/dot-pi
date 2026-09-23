@@ -1,7 +1,7 @@
 ---
 name: oracle
 description: High-context decision-consistency oracle that protects inherited state and prevents drift
-model: google/gemini-3.1-pro-preview-customtools
+model: openai-codex/gpt-5.6-sol
 thinking: high
 completionGuard: false
 tools: read, grep, find, ls, bash

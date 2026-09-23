@@ -2,7 +2,7 @@
 name: worker
 description: Implementation agent for normal tasks and approved oracle handoffs
 tools: read, grep, find, ls, bash, edit, write, safe_bash
-model: google/gemini-3.1-pro-preview-customtools
+model: openai-codex/gpt-5.6-luna
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true

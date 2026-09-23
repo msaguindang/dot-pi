@@ -1,7 +1,7 @@
 ---
 name: reviewer
 description: Read-only verification gate. Checks a worker's artifact/diff against supplied acceptance criteria (a manifest path and/or an explicit list). Outputs PASS / FAIL / INCONCLUSIVE, with per-criterion PASS / BLOCKER / UNVERIFIED / NOT REACHED. Never edits or fixes.
-model: google/gemini-3.6-flash
+model: openai-codex/gpt-5.6-luna
 thinking: medium
 systemPromptMode: replace
 inheritProjectContext: true

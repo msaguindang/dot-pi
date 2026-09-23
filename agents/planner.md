@@ -1,7 +1,7 @@
 ---
 name: planner
 description: Creates implementation plans from context and requirements
-model: google/gemini-3.1-pro-preview-customtools
+model: openai-codex/gpt-5.6-sol
 tools: read, grep, find, ls, write
 extensions: ""
 thinking: high

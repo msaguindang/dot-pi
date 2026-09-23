@@ -1,7 +1,7 @@
 ---
 name: session-auditor
 description: "Proactive session drift detector. Audits active session against context files and flags missing context, violated constraints, or inconsistent decisions. Report-only."
-model: google/gemini-3.6-flash
+model: openai-codex/gpt-5.6-luna
 thinking: high
 ---
 # Session Auditor
