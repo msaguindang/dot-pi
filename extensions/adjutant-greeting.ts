@@ -1034,14 +1034,22 @@ export default function (pi: ExtensionAPI) {
             let countdown = 20; // 10 seconds for adjutant
             let dismissed = false;
             let interval: ReturnType<typeof setInterval> | null = null;
+            let unsubscribeTerminalInput: (() => void) | null = null;
 
             const dismiss = () => {
               if (dismissed) return;
               dismissed = true;
               if (interval) clearInterval(interval);
+              unsubscribeTerminalInput?.();
+              unsubscribeTerminalInput = null;
               dismissWelcomeOverlay = null;
               done();
             };
+
+            unsubscribeTerminalInput = ctx.ui.onTerminalInput(() => {
+              dismiss();
+              return { consume: true };
+            });
 
             // Auto-dismiss countdown
             interval = setInterval(() => {
@@ -1069,6 +1077,8 @@ export default function (pi: ExtensionAPI) {
               dispose: () => {
                 dismissed = true;
                 if (interval) clearInterval(interval);
+                unsubscribeTerminalInput?.();
+                unsubscribeTerminalInput = null;
               },
             };
           },
