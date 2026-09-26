@@ -102,39 +102,54 @@ function readActiveProfile(agentDir: string): { profile: Profile; source: string
   return { profile: "default", source: "fallback" };
 }
 
-const DEFAULT_PROFILE_SENTINEL = "@~/.pi/agent/profiles/default.md";
+/** Select and inject one profile include. Legacy default sentinels match the profile slot too. */
+export function prepareProfilePrompt(
+  prompt: string,
+  agentDir: string,
+  selected: Profile,
+): { prompt: string; profile: Profile; warning?: string } {
+  let profile = selected;
+  let warning: string | undefined;
+  if (!existsSync(join(agentDir, "profiles", `${profile}.md`))) {
+    warning = `⚠️ profile "${profile}" file missing — using default`;
+    profile = "default";
+  }
+
+  const activeInclude = `@~/.pi/agent/profiles/${profile}.md`;
+  const profileInclude = /^@~\/\.pi\/agent\/profiles\/[^/]+\.md$/;
+  let found = false;
+  const normalized = prompt.split("\n").flatMap((line) => {
+    if (profileInclude.test(line.trim())) {
+      if (found) return [];
+      found = true;
+      return [activeInclude];
+    }
+    return [line];
+  });
+
+  if (!found) normalized.unshift(activeInclude);
+  return { prompt: normalized.join("\n"), profile, warning };
+}
 
 export default function (pi: ExtensionAPI) {
   pi.on("before_agent_start", async (event, ctx) => {
     const agentDir = join(homedir(), ".pi", "agent");
-    const { profile, source, warning } = readActiveProfile(agentDir);
-
-    let systemPrompt = event.systemPrompt;
+    const selection = readActiveProfile(agentDir);
+    const prepared = prepareProfilePrompt(event.systemPrompt, agentDir, selection.profile);
+    const profile = prepared.profile;
+    const source = profile === selection.profile ? selection.source : "fallback";
     const notifyLines: string[] = [];
-    if (warning) notifyLines.push(warning);
+    if (selection.warning) notifyLines.push(selection.warning);
+    if (prepared.warning) notifyLines.push(prepared.warning);
 
-    if (profile !== "default") {
-      const profileAbsPath = join(agentDir, "profiles", `${profile}.md`);
-      if (!existsSync(profileAbsPath)) {
-        notifyLines.push(`⚠️ profile "${profile}" file missing — using default`);
-      } else if (!systemPrompt.includes(DEFAULT_PROFILE_SENTINEL)) {
-        notifyLines.push(`⚠️ profile sentinel not found — using embedded @includes (no substitution)`);
-      } else {
-        systemPrompt = systemPrompt.replace(
-          DEFAULT_PROFILE_SENTINEL,
-          `@~/.pi/agent/profiles/${profile}.md`,
-        );
-      }
-    }
-
-    const { prompt: resolvedPrompt, resolved, failed } = expandSystemPrompt(systemPrompt);
-
+    const { prompt: resolvedPrompt, resolved, failed } = expandSystemPrompt(prepared.prompt);
     notifyLines.push(`🎯 Profile: ${profile} (${source})`);
     if (resolved.length) notifyLines.push(`✓ ${resolved.join(", ")}`);
     if (failed.length) notifyLines.push(`✗ MISSING: ${failed.join(", ")}`);
-
-    ctx.ui.notify(notifyLines.join(" | "), failed.length > 0 || warning ? "warning" : "info");
-
+    ctx.ui.notify(
+      notifyLines.join(" | "),
+      failed.length > 0 || Boolean(selection.warning) || Boolean(prepared.warning) ? "warning" : "info",
+    );
     return {
       systemPrompt: resolvedPrompt,
     };
