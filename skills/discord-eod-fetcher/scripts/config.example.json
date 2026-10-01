@@ -2,7 +2,7 @@
   "_note": "discord_bot_token is injected via Infisical (localhost:8080) — do not add it here",
   "channel_id": "YOUR_CHANNEL_ID_HERE",
   "vault_path": "~/Dropbox/Obsidian",
-  "template_path": "z. System/Templates/Work Log.md",
+  "template_path": "z. System/Blueprints/Work Log.md",
   "display_name_overrides": {
     "your_discord_username": "Display Name"
   },

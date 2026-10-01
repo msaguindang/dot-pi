@@ -285,7 +285,7 @@ def normalise_bullets(raw: str) -> str:
 
 def create_from_template(date_obj: datetime, config: dict) -> str:
     vault = os.path.expanduser(config.get("vault_path", "~/Dropbox/Obsidian"))
-    tmpl = os.path.join(vault, config.get("template_path", "z. System/Templates/Work Log.md"))
+    tmpl = os.path.join(vault, config.get("template_path", "z. System/Blueprints/Work Log.md"))
     with open(tmpl, "r", encoding="utf-8") as f:
         content = f.read()
     mwf = (
@@ -297,6 +297,14 @@ def create_from_template(date_obj: datetime, config: dict) -> str:
     content = content.replace("{{date:MMM DD, YYYY}}", date_obj.strftime("%b %d, %Y"))
     content = content.replace("{{mwf_meeting}}", mwf)
     return content
+
+
+def work_log_path(date_obj: datetime, config: dict) -> str:
+    """Path of the day's Work Log. Logs live in a per-year subfolder (Work Logs/YYYY/)."""
+    vault = os.path.expanduser(config.get("vault_path", "~/Dropbox/Obsidian"))
+    output_folder = config.get("output_folder", "2. Areas/01 Work/01 Operations/Work Logs")
+    return os.path.join(vault, output_folder, date_obj.strftime("%Y"),
+                        f"{date_obj.strftime('%Y-%m-%d')} - Work Log.md")
 
 
 def inject_into_team_updates(content: str, header: str, new_text: str,
@@ -369,21 +377,19 @@ def inject_into_my_focus(content: str, new_text: str) -> str:
     return pre + block + post
 
 
-def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> set[str]:
+def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> Optional[set[str]]:
     """
     Process messages and inject into Obsidian work log.
-    Returns set of display names that successfully posted.
+    Returns set of display names that successfully posted, or None if the log
+    could not be written (caller must not mark these messages as handled).
     """
-    vault = os.path.expanduser(config.get("vault_path", "~/Dropbox/Obsidian"))
-    output_folder = config.get("output_folder", "2. Areas/01 Work/Work Logs")
     template_sections: dict[str, str] = config.get("template_sections", {})
     author_header_pat = config.get("author_header_pattern", "### {author}")
     empty_placeholder = config.get("empty_placeholder_pattern", r"- ")
     display_overrides: dict[str, str] = config.get("display_name_overrides", {})
     self_username: str = config.get("self_username", "")
 
-    date_str = date_obj.strftime("%Y-%m-%d")
-    file_path = os.path.join(vault, output_folder, f"{date_str} - Work Log.md")
+    file_path = work_log_path(date_obj, config)
     os.makedirs(os.path.dirname(file_path), exist_ok=True)
 
     # Group messages by display name. Cosmetic override by stable username takes
@@ -436,7 +442,7 @@ def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> 
                 f.write(text)
         except FileNotFoundError as e:
             print(f"[ERROR] Template not found: {e}", file=sys.stderr)
-            return set()
+            return None
 
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
@@ -460,10 +466,8 @@ def save_to_obsidian(date_obj: datetime, messages: list[dict], config: dict) -> 
 
 def write_missing_thread_note(date_obj: datetime, config: dict) -> None:
     """Append a note that no Discord thread was created for this date."""
-    vault = os.path.expanduser(config.get("vault_path", "~/Dropbox/Obsidian"))
-    output_folder = config.get("output_folder", "2. Areas/01 Work/Work Logs")
     date_str = date_obj.strftime("%Y-%m-%d")
-    file_path = os.path.join(vault, output_folder, f"{date_str} - Work Log.md")
+    file_path = work_log_path(date_obj, config)
 
     if not os.path.exists(file_path):
         return  # don't create a log just for a missing thread note
@@ -551,7 +555,9 @@ def main() -> None:
             continue
 
         print(f"[INFO] {date_str}: {len(msgs)} new message(s)", file=sys.stderr)
-        save_to_obsidian(date_obj, msgs, config)
+        if save_to_obsidian(date_obj, msgs, config) is None:
+            print(f"[ERROR] {date_str}: not saved — leaving messages unhandled so the next run retries", file=sys.stderr)
+            continue
 
         if newest_id:
             update_last_message_id(state, thread_id, newest_id)

@@ -49,7 +49,7 @@ This guide walks you through setting up the Discord bot and configuring the skil
 {
   "channel_id": "YOUR_CHANNEL_ID_HERE",
   "vault_path": "~/Dropbox/Obsidian",
-  "template_path": "z. System/Templates/Work Log.md",
+  "template_path": "z. System/Blueprints/Work Log.md",
   "display_name_overrides": {
     "your_discord_username": "Display Name"
   },
