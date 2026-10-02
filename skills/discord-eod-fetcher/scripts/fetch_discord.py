@@ -524,6 +524,7 @@ def main() -> None:
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     dates = [today - timedelta(days=i) for i in range(args.lookback_days)]
 
+    failed_dates: list[str] = []
     for date_obj in dates:
         if date_obj.weekday() >= 5:  # skip weekends
             continue
@@ -557,6 +558,7 @@ def main() -> None:
         print(f"[INFO] {date_str}: {len(msgs)} new message(s)", file=sys.stderr)
         if save_to_obsidian(date_obj, msgs, config) is None:
             print(f"[ERROR] {date_str}: not saved — leaving messages unhandled so the next run retries", file=sys.stderr)
+            failed_dates.append(date_str)
             continue
 
         if newest_id:
@@ -564,6 +566,11 @@ def main() -> None:
 
     mark_run(state)
     save_state(args.state, state)
+
+    # Surface failures to systemd/journal instead of exiting 0 after a silent skip.
+    if len(failed_dates) > 0:
+        print(f"[ERROR] Failed to save: {', '.join(failed_dates)}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
