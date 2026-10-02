@@ -36,6 +36,7 @@ context.md
 
 # Pi runtime artifacts
 .pi-subagents/
+/pi-subagents/
 models-store.json
 git/
 node_modules/
