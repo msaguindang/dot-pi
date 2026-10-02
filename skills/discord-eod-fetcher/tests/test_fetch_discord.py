@@ -28,7 +28,7 @@ class SaveToObsidianFixturesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             vault = Path(temporary)
             template = vault / "template.md"
-            output = vault / "logs" / "2026-04-01 - Work Log.md"
+            output = vault / "logs" / "2026" / "2026-04-01 - Work Log.md"
             template.write_text(fixture["config"]["template"], encoding="utf-8")
             config = {
                 "vault_path": str(vault),
@@ -75,7 +75,7 @@ class SaveToObsidianFixturesTest(unittest.TestCase):
                 "empty_placeholder_pattern": r"- ",
             }
             fetch_discord.save_to_obsidian(self.date, fixture["messages"], config)
-            output = vault / "logs" / "2026-04-01 - Work Log.md"
+            output = vault / "logs" / "2026" / "2026-04-01 - Work Log.md"
             first = output.read_bytes()
             fetch_discord.save_to_obsidian(self.date, fixture["messages"], config)
             second = output.read_bytes()
