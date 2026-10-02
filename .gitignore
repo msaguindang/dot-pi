@@ -4,6 +4,8 @@
 .taskplane-tasks/
 taskplane.json
 auth.json
+/mcp.json
+/mcp-auth.json
 sessions/
 plan_output.txt
 run-history.jsonl
