@@ -1,0 +1,14 @@
+{
+  "messages": [{
+    "username": "alice-id",
+    "author": "Alice",
+    "content": "EOD 2026-04-01\nDone\n- boundary-safe update"
+  }],
+  "config": {
+    "template": "## Team Updates\n\n### Alice\n#### EOD 2026-03-31\n- earlier update\n\n### Bob\n- bob update\n\n## My Focus\n- personal\n\n## Notes\n- note\n"
+  },
+  "expected": {
+    "contains": ["#### EOD 2026-03-31", "#### EOD 2026-04-01", "### Bob\n- bob update", "## My Focus\n- personal", "## Notes\n- note"],
+    "order": ["#### EOD 2026-04-01", "### Bob", "## My Focus", "## Notes"]
+  }
+}

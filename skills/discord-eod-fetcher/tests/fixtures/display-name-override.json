@@ -1,0 +1,15 @@
+{
+  "messages": [{
+    "username": "stable-user",
+    "author": "Live Nickname",
+    "content": "Done\n- reviewed the pull request"
+  }],
+  "config": {
+    "display_name_overrides": {"stable-user": "Preferred Name"},
+    "template": "## Team Updates\n\n### Preferred Name\n- \n\n## My Focus\n- \n"
+  },
+  "expected": {
+    "contains": ["### Preferred Name", "- **Done**\n\t- reviewed the pull request"],
+    "absent": ["### Live Nickname"]
+  }
+}
