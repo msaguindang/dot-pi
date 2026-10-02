@@ -14,7 +14,7 @@ R3 work; it does not replace those rules.
 1. Create a task artifact with absolute context paths, exact changes, scope fence, and
    objectively checkable acceptance evidence. Release/build/deploy task files must be made
    by `scripts/create-task.sh` and checked with `scripts/check-task-provenance.sh`.
-2. Validate with `scripts/validate.sh`.
+2. Validate with `~/.pi/agent/skills/delegation-validator/scripts/validate.sh`.
 3. Dispatch the worker with fresh context and the task artifact.
 4. Verify independently with `scripts/verify.sh` before review; check status, commit message,
    changed-file fence, and script syntax. Use `--skip-push` when push is not authorized.
@@ -41,5 +41,6 @@ pre-irreversible review, explicit authorization, and live post-state evidence. N
 supervisor; return blocking decisions with options and a recommendation. Never clean,
 reset, overwrite, or push outside explicit authorization.
 
-Scripts: `create-task.sh`, `check-task-provenance.sh`, `validate.sh`, `create-review.sh`, and
-`verify.sh` under this skill's `scripts/` directory.
+Airlock scripts `create-task.sh`, `check-task-provenance.sh`, `create-review.sh`, and
+`verify.sh` live under this skill's `scripts/` directory. Task validation is provided by
+`~/.pi/agent/skills/delegation-validator/scripts/validate.sh`.
