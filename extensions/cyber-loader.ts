@@ -377,6 +377,7 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("agent_start", (_event: any, ctx: ExtensionContext): void => {
 		activeCtx = ctx;
 		isThinking = true;
+		ctx.ui.setWorkingVisible(true);
 		if (activeTools === 0 && !subagentsBusy) {
 			ctx.ui.setWorkingIndicator(matrixIndicator);
 		}
