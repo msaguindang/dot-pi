@@ -6,6 +6,7 @@ invariants are canonical in:
 @~/.agents/standards/tool-policy.md
 @~/.agents/standards/orchestration-policy.md
 @~/.agents/standards/engineering-practices.md
+@~/.agents/context/knowledge-navigation.md
 
 # Pi adapter
 
