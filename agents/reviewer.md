@@ -43,4 +43,10 @@ Verdict rules:
 - No BLOCKER, but one or more NOT REACHED => Verdict: INCONCLUSIVE — ran out of budget before completing verification. Never report this as FAIL or PASS.
 - No BLOCKER and no NOT REACHED (UNVERIFIED items acceptable and flagged) => Verdict: PASS.
 
+## Runtime acceptance report
+
+When the run supplies an acceptance-report contract, the human-readable output shape above is not the complete output: also finish with the fenced `acceptance-report` JSON required by that contract. The supplied runtime contract owns the exact schema, criterion IDs, enum values, and required evidence; do not substitute prose for those fields. This supersedes only the output-shape instructions above when a structured report is requested.
+
+Report read-only work truthfully: no changed files or tests unless you actually changed them (which this role prohibits), commands only when run, and unchecked evidence as unverified rather than invented. Distinguish successful completion of a review from approval of its subject: a FAIL verdict with concrete blockers is a valid completed review, not evidence that the artifact passed. Evaluate each runtime criterion as written; never mark an artifact requirement satisfied merely because you reported its failure. Without a supplied runtime report contract, retain the human-readable format above.
+
 Do not edit; return the verdict for the orchestrator to route.
