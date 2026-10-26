@@ -1,16 +1,53 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { execSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { google } from "googleapis";
+
+const run = promisify(execFile);
+
+const INFISICAL_DOMAIN = "http://localhost:8080";
+const INFISICAL_TIMEOUT_MS = 15_000;
+const CREDS_DIR = join(homedir(), ".config", "infisical-machine");
+const PROJECT_FILE = join(homedir(), ".pi", "agent", ".infisical.json");
 
 // Cache secrets
 const secrets = new Map<string, string>();
+let loading: Promise<void> = Promise.resolve();
+
+// Machine-identity login (renews without a browser) so a lapsed user session can never block pi.
+async function loadSecrets(): Promise<void> {
+    const clientId = readFileSync(join(CREDS_DIR, "client-id"), "utf-8").trim();
+    const clientSecret = readFileSync(join(CREDS_DIR, "client-secret"), "utf-8").trim();
+    const projectId = (JSON.parse(readFileSync(PROJECT_FILE, "utf-8")) as { workspaceId?: string }).workspaceId ?? "";
+    if (clientId.length === 0 || clientSecret.length === 0 || projectId.length === 0) {
+        throw new Error("Machine identity files or project id missing");
+    }
+    const opts = { encoding: "utf-8" as const, timeout: INFISICAL_TIMEOUT_MS, stdio: ["ignore", "pipe", "pipe"] };
+    const login = await run("infisical", [
+        "login", "--method=universal-auth", `--client-id=${clientId}`, `--client-secret=${clientSecret}`,
+        "--plain", "--silent", "--domain", INFISICAL_DOMAIN,
+    ], opts as never);
+    const token = String(login.stdout).trim();
+    if (token.length === 0) throw new Error("Infisical login returned no token");
+    const exported = await run("infisical", [
+        "export", "--domain", INFISICAL_DOMAIN, "--projectId", projectId, "--env", "dev", "--format=dotenv",
+    ], { ...opts, env: { ...process.env, INFISICAL_TOKEN: token } } as never);
+    for (const line of String(exported.stdout).split("\n")) {
+        const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+        if (match) secrets.set(match[1], match[2].replace(/^["']|["']$/g, ""));
+    }
+}
 
 function getSecret(key: string): string {
     return secrets.get(key) ?? process.env[key] ?? "";
 }
 
-function getAuthClient() {
+async function getAuthClient() {
+    await loading;
     const clientId = getSecret("GMAIL_CLIENT_ID");
     const clientSecret = getSecret("GMAIL_CLIENT_SECRET");
     const refreshToken = getSecret("GMAIL_REFRESH_TOKEN");
@@ -45,22 +82,13 @@ function makeRawEmail(to: string, subject: string, body: string, cc?: string): s
 }
 
 export default function (pi: ExtensionAPI) {
-    pi.on("session_start", async (_event, ctx) => {
+    pi.on("session_start", (_event, ctx) => {
         secrets.clear();
-        try {
-            const output = execSync(
-                "infisical export --domain http://localhost:8080 --format=dotenv",
-                { encoding: "utf-8", stdio: ["ignore", "pipe", "pipe"] }
-            );
-            for (const line of output.split("\n")) {
-                const match = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
-                if (match) {
-                    secrets.set(match[1], match[2].replace(/^["']|["']$/g, ""));
-                }
-            }
-        } catch {
-            // Silently ignore or notify
-        }
+        // Not awaited: pi opens immediately; Gmail tools wait on `loading` when first used.
+        loading = loadSecrets().catch((error: unknown) => {
+            const reason = error instanceof Error ? error.message.split("\n")[0] : String(error);
+            ctx.ui.notify(`[gmail] could not load secrets from Infisical: ${reason}`);
+        });
     });
 
     pi.on("session_shutdown", () => {
@@ -76,7 +104,7 @@ export default function (pi: ExtensionAPI) {
         }),
         execute: async (_callId, params) => {
             const { query, maxResults = 5 } = params as { query: string; maxResults?: number };
-            const auth = getAuthClient();
+            const auth = await getAuthClient();
             const gmail = google.gmail({ version: "v1", auth });
             
             const res = await gmail.users.messages.list({
@@ -118,7 +146,7 @@ export default function (pi: ExtensionAPI) {
         }),
         execute: async (_callId, params) => {
             const { id } = params as { id: string };
-            const auth = getAuthClient();
+            const auth = await getAuthClient();
             const gmail = google.gmail({ version: "v1", auth });
             
             const res = await gmail.users.messages.get({
@@ -158,7 +186,7 @@ export default function (pi: ExtensionAPI) {
         }),
         execute: async (_callId, params) => {
             const { to, subject, body, cc } = params as { to: string; subject: string; body: string; cc?: string };
-            const auth = getAuthClient();
+            const auth = await getAuthClient();
             const gmail = google.gmail({ version: "v1", auth });
             
             const raw = makeRawEmail(to, subject, body, cc);
@@ -199,7 +227,7 @@ export default function (pi: ExtensionAPI) {
                 return { content: [{ type: "text", text: "Email sending cancelled by user." }] };
             }
 
-            const auth = getAuthClient();
+            const auth = await getAuthClient();
             const gmail = google.gmail({ version: "v1", auth });
             
             const raw = makeRawEmail(to, subject, body, cc);
