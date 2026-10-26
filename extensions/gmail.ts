@@ -11,8 +11,7 @@ const run = promisify(execFile);
 
 const INFISICAL_DOMAIN = "http://localhost:8080";
 const INFISICAL_TIMEOUT_MS = 15_000;
-const CREDS_DIR = join(homedir(), ".config", "infisical-machine");
-const PROJECT_FILE = join(homedir(), ".pi", "agent", ".infisical.json");
+const CREDS_DIR = join(homedir(), ".config", "infisical-machine", "gmail");
 
 // Cache secrets
 const secrets = new Map<string, string>();
@@ -22,9 +21,9 @@ let loading: Promise<void> = Promise.resolve();
 async function loadSecrets(): Promise<void> {
     const clientId = readFileSync(join(CREDS_DIR, "client-id"), "utf-8").trim();
     const clientSecret = readFileSync(join(CREDS_DIR, "client-secret"), "utf-8").trim();
-    const projectId = (JSON.parse(readFileSync(PROJECT_FILE, "utf-8")) as { workspaceId?: string }).workspaceId ?? "";
+    const projectId = readFileSync(join(CREDS_DIR, "project-id"), "utf-8").trim();
     if (clientId.length === 0 || clientSecret.length === 0 || projectId.length === 0) {
-        throw new Error("Machine identity files or project id missing");
+        throw new Error("Gmail machine identity files missing or empty");
     }
     const opts = { encoding: "utf-8" as const, timeout: INFISICAL_TIMEOUT_MS, stdio: ["ignore", "pipe", "pipe"] };
     const login = await run("infisical", [
