@@ -1,6 +1,7 @@
 # Skill Loading Rules (Pi adapter)
 
-`APPEND_SYSTEM.md` is the canonical Pi routing adapter. Load a governing skill before acting;
+`~/.agents/roles/execution.md` selects execution roles; `~/.agents/adapters/pi.md`
+owns Pi mechanics. `APPEND_SYSTEM.md` is a generated compatibility entry. Load a governing skill before acting;
 these rules describe prerequisites and discovery, not a second risk taxonomy. Shared risk,
 authorization, evidence, diagnostic, and escalation invariants are in
 `~/.agents/standards/orchestration-policy.md`.
@@ -31,4 +32,4 @@ Skills are slash commands: `/delegate`, `/pi-subagents`, `/delegation-validator`
 auto-discovered from `~/.agents/skills`; do not copy them into this harness.
 
 For detailed delegation, airlock, worktree, and device mechanics, read the corresponding
-skill. Route selection itself remains solely in `APPEND_SYSTEM.md`.
+skill. Role selection remains solely in `~/.agents/roles/execution.md`.

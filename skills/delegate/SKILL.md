@@ -1,14 +1,14 @@
 ---
 name: delegate
-description: "Pi's R2/R3 delegation recipe; route selection is owned by APPEND_SYSTEM.md."
+description: "Pi's R2/R3 delegation recipe; role selection is owned by ~/.agents/roles/execution.md."
 ---
 
 # Pi delegation recipe
 
-Read `APPEND_SYSTEM.md` for the canonical DIRECT/R0, ordinary R1 worker, REV, R2, R3, and
-CHAIN routes, and `~/.agents/standards/orchestration-policy.md` for shared invariants. This
-skill supplies the mechanics for non-trivial multi-agent work; it must not create another
-risk taxonomy or weaken the adapter.
+Read `~/.agents/roles/execution.md` for shared roles and
+`~/.agents/adapters/pi.md` for Pi-specific mechanics. Shared invariants live in
+`~/.agents/standards/orchestration-policy.md`. Use this recipe when a multi-agent
+workflow is selected; it does not mandate worker routing for every local edit.
 
 ## R2
 
