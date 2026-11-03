@@ -51,15 +51,15 @@ case ${code:-000} in
   *)     report fail "confluence reachable" "HTTP ${code:-error} from $CONFLUENCE_URL" ;;
 esac
 
-# 4. Plane secrets injectable via infisical (cwd-sensitive)
+# 4. Plane secrets loadable through the Plane machine identity
 if ! command -v infisical >/dev/null 2>&1; then
   report fail "plane secrets via infisical" "infisical CLI not on PATH"
 elif [[ ! -d $PLANE_TASKS_DIR ]]; then
   report fail "plane secrets via infisical" "plane-tasks dir missing: $PLANE_TASKS_DIR"
-elif (cd "$PLANE_TASKS_DIR" && infisical run -- true >/dev/null 2>&1); then
-  report pass "plane secrets via infisical" "infisical run -- true succeeded from $PLANE_TASKS_DIR"
+elif (env -u PLANE_API_KEY bash -c 'source "$1/scripts/plane-env.sh" && [[ -n ${PLANE_API_KEY:-} ]]' _ "$PLANE_TASKS_DIR" >/dev/null 2>&1); then
+  report pass "plane secrets via infisical" "plane-env.sh loaded the Plane secrets"
 else
-  report fail "plane secrets via infisical" "infisical run -- true failed from $PLANE_TASKS_DIR (login/config?)"
+  report fail "plane secrets via infisical" "plane-env.sh could not load the Plane secrets (identity files / Infisical?)"
 fi
 
 exit $FAIL

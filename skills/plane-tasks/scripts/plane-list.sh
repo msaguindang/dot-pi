@@ -2,14 +2,10 @@
 
 set -euo pipefail
 
-# --- secrets: load from Infisical regardless of caller's cwd (agent root: ~/.pi/agent) ---
-INFISICAL_ROOT="$HOME/.pi/agent"
-if command -v infisical &>/dev/null && [[ -f "$INFISICAL_ROOT/.infisical.json" ]]; then
-    eval "$(cd "$INFISICAL_ROOT" && infisical export --format=dotenv-export --silent --path / 2>/dev/null)" || true
-fi
+# --- secrets: Plane Integration project via machine identity ---
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plane-env.sh" || exit 1
 
-# Enforce Infisical Secrets
-: "${PLANE_API_KEY:?Error: PLANE_API_KEY not set. Run via 'infisical run -- <script>'}"
+: "${PLANE_API_KEY:?Error: PLANE_API_KEY not set}"
 : "${PLANE_BASE_URL:?Error: PLANE_BASE_URL not set.}"
 : "${PLANE_WORKSPACE_SLUG:?Error: PLANE_WORKSPACE_SLUG not set.}"
 

@@ -2,8 +2,9 @@
 
 set -euo pipefail
 
-# Enforce Infisical Secrets
-: "${PLANE_API_KEY:?Error: PLANE_API_KEY not set. Run via 'infisical run -- <script>'}"
+# --- secrets: Plane Integration project via machine identity ---
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plane-env.sh" || exit 1
+: "${PLANE_API_KEY:?Error: PLANE_API_KEY not set}"
 : "${PLANE_BASE_URL:?Error: PLANE_BASE_URL not set.}"
 : "${PLANE_WORKSPACE_SLUG:?Error: PLANE_WORKSPACE_SLUG not set.}"
 

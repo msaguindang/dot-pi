@@ -8,7 +8,7 @@ description: Fetch, filter, and update Plane work items (issues) from the termin
 Provides tools for interacting with Plane API to manage tasks for NTV projects.
 
 ## Setup
-1. Create `~/.config/plane/env` based on `~/.config/plane/env.example`.
+1. Credentials load automatically from the **Plane Integration** Infisical project through a dedicated machine identity (private files in `~/.config/infisical-machine/plane/`). Run any script from any folder. Exporting `PLANE_API_KEY`, `PLANE_BASE_URL` and `PLANE_WORKSPACE_SLUG` yourself overrides this.
 2. Ensure `curl` and `jq` are installed.
 
 ## Usage

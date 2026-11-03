@@ -27,9 +27,9 @@ output artifact).
 2. **This skill orchestrates existing skills — it never reimplements their API
    calls.** Confluence writes go through `confluence-publisher`, Plane calls go
    through `plane-tasks` scripts, comms formatting follows `internal-comms`.
-3. **All Plane API calls run as `infisical run -- <script>` with cwd
-   `/home/codeweaver/.pi/agent/skills/plane-tasks/`** (infisical config is
-   cwd-sensitive; `~/.pi/agent/.infisical.json` is the anchor).
+3. **All Plane API calls go through the `plane-tasks` scripts.** They load
+   their own credentials from the Plane Integration Infisical project through
+   a machine identity, so no wrapper is needed and they work from any folder.
 4. **No shared output paths.** Each worker writes only its own result file and
    its own store (see boundaries below).
 5. **A shipped fix always ends with a Plane ticket in `Done`, never with none.**
@@ -67,7 +67,7 @@ or resolves at dispatch time:
 
 | Config | Assumed value | How to verify at runtime |
 |--------|---------------|--------------------------|
-| Plane project | "NTV Player V1" (id `de83ad37…`) — **ASSUMED** | `cd ~/.pi/agent/skills/plane-tasks && infisical run -- scripts/plane-projects.sh` |
+| Plane project | "NTV Player V1" (id `de83ad37…`) — **ASSUMED** | `~/.pi/agent/skills/plane-tasks/scripts/plane-projects.sh` |
 | Confluence parent page | "Player Release Notes", parent id `949354515`, space `NCTV` — **ASSUMED** | Fetch the page via confluence-publisher's API creds, or confirm with the user. Note: confluence-publisher's own default parent is `2588673` ("Raspberry Pi Player"), so **always pass `--parent-id` explicitly**. |
 | Obsidian target dir | `~/Dropbox/Obsidian/2. Areas/01 Work/02 Fleet & Infra/` | `pre-dispatch-validate.sh` checks it is writable |
 | S3 release bucket | `s3://ncompasstv-prod-player-apps/secure-rc/<BUILD_ID>/` | `aws s3 ls` during final verification (only if a new release bundle was cut) |
@@ -146,8 +146,7 @@ skips validation/generation and goes straight to wait → collect → verify →
   primary ticket first** (`plane-create.sh`, title from fix-id + summary) and
   then transition/comment on it the same way — a fix with no ticket at all is
   not an acceptable outcome. Plus follow-up ticket creation. All via
-  `plane-tasks` scripts under `infisical run --` from the plane-tasks
-  directory. No orphaned follow-ups: if creation fails, say so in the result
+  `plane-tasks` scripts (they load their own credentials). No orphaned follow-ups: if creation fails, say so in the result
   rather than retrying blind.
   **Shipped-version label (decided 2026-08-24, NTV Player V1 project
   only):** when transitioning a ticket to Done, also apply

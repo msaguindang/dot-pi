@@ -222,7 +222,7 @@ fi
 # ticket in that case (see task-plane-template.md step 2), so it must show up
 # in tickets_created below regardless of whether $TICKETS was supplied.
 if command -v infisical >/dev/null 2>&1 && [[ -d $PLANE_TASKS_DIR ]]; then
-  if out=$(cd "$PLANE_TASKS_DIR" && infisical run -- scripts/plane-projects.sh 2>&1 | grep -i "$PLANE_PROJECT" | head -1); then
+  if out=$(cd "$PLANE_TASKS_DIR" && scripts/plane-projects.sh 2>&1 | grep -i "$PLANE_PROJECT" | head -1); then
     note "Plane project visible: $out"
   else
     note "Plane project '$PLANE_PROJECT' NOT found via plane-projects.sh — verify ticket states manually"

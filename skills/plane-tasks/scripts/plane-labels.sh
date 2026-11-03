@@ -8,11 +8,8 @@ set -euo pipefail
 # rule this exists to support: player-server-X.Y.Z / player-ui-A.B.C, applied
 # at the same point a ticket is marked Done.
 
-# --- secrets: load from Infisical ---
-INFISICAL_ROOT="${PI_CODING_AGENT_DIR:-${HOME:?}/.pi/agent}"
-if command -v infisical &>/dev/null && [[ -f "$INFISICAL_ROOT/.infisical.json" ]]; then
-    eval "$(cd "$INFISICAL_ROOT" && infisical export --format=dotenv-export --silent --path / 2>/dev/null)" || true
-fi
+# --- secrets: Plane Integration project via machine identity ---
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/plane-env.sh" || exit 1
 
 : "${PLANE_API_KEY:?PLANE_API_KEY not set}"
 : "${PLANE_BASE_URL:?PLANE_BASE_URL not set}"

@@ -18,15 +18,15 @@ Everything you need is in this file. Do not assume any prior conversation.
 
 ## Secret Handling (mandatory)
 
-All Plane API calls go through the plane-tasks skill scripts, wrapped in
-infisical, from the plane-tasks directory (infisical is cwd-sensitive):
+All Plane API calls go through the plane-tasks skill scripts. They load their
+own credentials, so run them directly from any folder:
 
 ```bash
 cd /home/codeweaver/.pi/agent/skills/plane-tasks
-infisical run -- scripts/plane-projects.sh                     # resolve project id
-infisical run -- scripts/plane-issues.sh --project <project_id>
-infisical run -- scripts/plane-update.sh <issue_seq> <project_id> Done
-infisical run -- scripts/plane-create.sh --project <project_id> --title "<title>"
+scripts/plane-projects.sh                     # resolve project id
+scripts/plane-issues.sh --project <project_id>
+scripts/plane-update.sh <issue_seq> <project_id> Done
+scripts/plane-create.sh --project <project_id> --title "<title>"
 ```
 
 Do NOT hand-roll curl calls to the Plane API and do NOT echo secrets.
@@ -87,8 +87,7 @@ comment_added: yes|no
 
 ## Acceptance Criteria
 
-1. Every Plane API call went through plane-tasks scripts under
-   `infisical run --` from the plane-tasks directory.
+1. Every Plane API call went through the plane-tasks scripts.
 2. All API calls returned HTTP 2xx (the scripts exit non-zero otherwise);
    failures are recorded per ticket in the result details.
 3. Each listed ticket's state transition is logged (old → new) in the result,
