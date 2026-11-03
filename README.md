@@ -6,19 +6,11 @@ profiles and Pi-specific skills, not a second personal policy.
 
 ## Instructions
 
-`~/.agents/scripts/sync-instructions.py --write` generates this repository's
-`AGENTS.md` and compatibility `APPEND_SYSTEM.md`. Edit the canonical sources in
-`~/.agents` instead of generated entries. Check deployment without writing:
-
-```bash
-python3 ~/.agents/scripts/sync-instructions.py
-```
-
-Shared roles are defined in `~/.agents/roles/execution.md`; Pi tool mechanics are in
-`~/.agents/adapters/pi.md`. This supersedes the former mandatory worker/R1 and REV
-routing in APPEND_SYSTEM. General assistants execute directly; an explicitly selected
-supervisor coordinates workers. Independent review and operational safeguards remain
-in the shared policy. See `~/.agents/README.md` for setup, ownership and boundaries.
+AGENTS.md imports `~/.agents/AGENTS.md` and `~/.agents/adapters/pi.md` through the
+existing context resolver. APPEND_SYSTEM is a policy-free compatibility entry. Edit
+shared instructions in `~/.agents/AGENTS.md` and start a fresh session; no sync command
+is required. Shared roles replace the former mandatory worker/R1 and REV routing.
+See `~/.agents/README.md` for ownership, native connections and loading limits.
 
 ## Pi context profiles
 

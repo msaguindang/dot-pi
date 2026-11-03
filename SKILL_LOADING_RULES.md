@@ -1,7 +1,7 @@
 # Skill Loading Rules (Pi adapter)
 
 `~/.agents/roles/execution.md` selects execution roles; `~/.agents/adapters/pi.md`
-owns Pi mechanics. `APPEND_SYSTEM.md` is a generated compatibility entry. Load a governing skill before acting;
+owns Pi mechanics. `APPEND_SYSTEM.md` is a policy-free compatibility entry. Load a governing skill before acting;
 these rules describe prerequisites and discovery, not a second risk taxonomy. Shared risk,
 authorization, evidence, diagnostic, and escalation invariants are in
 `~/.agents/standards/orchestration-policy.md`.
