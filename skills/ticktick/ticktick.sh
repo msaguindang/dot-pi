@@ -8,6 +8,39 @@ set -euo pipefail
 #   <params_json>  JSON object of arguments (default '{}')
 
 readonly TICKTICK_ENDPOINT="https://mcp.ticktick.com/"
+readonly INFISICAL_DOMAIN="http://localhost:8080"
+readonly INFISICAL_TIMEOUT_SECONDS=15
+readonly CREDS_DIR="${HOME}/.config/infisical-machine/ticktick"
+
+# Fetch the TickTick key with a dedicated machine identity. It renews without a
+# browser and gives up fast, so an expired personal login can never hang this script.
+load_api_key() {
+    local file access_token
+    local -A creds=()
+    for file in client-id client-secret project-id path; do
+        if [[ ! -r "${CREDS_DIR}/${file}" ]]; then
+            echo "Error: missing ${CREDS_DIR}/${file}" >&2
+            return 1
+        fi
+        creds[$file]="$(<"${CREDS_DIR}/${file}")"
+    done
+
+    if ! access_token="$(timeout "$INFISICAL_TIMEOUT_SECONDS" infisical login --method=universal-auth \
+        --client-id="${creds[client-id]}" --client-secret="${creds[client-secret]}" \
+        --plain --silent --domain "$INFISICAL_DOMAIN" </dev/null 2>/dev/null)" || [[ -z "$access_token" ]]; then
+        echo "Error: Infisical machine login failed or timed out" >&2
+        return 1
+    fi
+
+    if ! TICKTICK_API_KEY="$(INFISICAL_TOKEN="$access_token" timeout "$INFISICAL_TIMEOUT_SECONDS" \
+        infisical secrets get TICKTICK_API_KEY --plain --silent --domain "$INFISICAL_DOMAIN" \
+        --projectId "${creds[project-id]}" --env dev --path "${creds[path]}" </dev/null 2>/dev/null)" \
+        || [[ -z "$TICKTICK_API_KEY" ]]; then
+        echo "Error: could not read TICKTICK_API_KEY from Infisical" >&2
+        return 1
+    fi
+    export TICKTICK_API_KEY
+}
 
 main() {
     if [[ $# -lt 1 ]]; then
@@ -25,11 +58,11 @@ main() {
         exit 1
     fi
 
-    # Auth: use existing env var, else load from infisical (mirrors broker).
+    # Auth: use existing env var, else load it from Infisical.
     if [[ -z "${TICKTICK_API_KEY:-}" ]]; then
-        eval "$(infisical export --domain http://localhost:8080 --format=dotenv-export 2>/dev/null)"
+        load_api_key || exit 1
     fi
-    : "${TICKTICK_API_KEY:?TICKTICK_API_KEY not set — set it in env or via infisical}"
+    : "${TICKTICK_API_KEY:?TICKTICK_API_KEY not set}"
 
     # Build the JSON-RPC 2.0 body. tools/list takes empty params; everything
     # else is framed as a tools/call with the method as the tool name.
