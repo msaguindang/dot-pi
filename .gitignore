@@ -45,3 +45,13 @@ git/
 node_modules/
 missions/
 extensions/herdr-agent-state.ts
+
+# Pi's own installer state and local backups (machine-specific)
+/install/
+/bin/
+/pi-web-access/
+crashes.json
+auth.json.bak-*
+/skills/impeccable/
+# App-managed Orca extensions (same treatment as herdr-agent-state.ts)
+extensions/orca-*.ts
