@@ -137,18 +137,12 @@ export default function (pi: ExtensionAPI) {
     const selection = readActiveProfile(agentDir);
     const prepared = prepareProfilePrompt(event.systemPrompt, agentDir, selection.profile);
     const profile = prepared.profile;
-    const source = profile === selection.profile ? selection.source : "fallback";
-    const notifyLines: string[] = [];
-    if (selection.warning) notifyLines.push(selection.warning);
-    if (prepared.warning) notifyLines.push(prepared.warning);
-
-    const { prompt: resolvedPrompt, resolved, failed } = expandSystemPrompt(prepared.prompt);
-    notifyLines.push(`🎯 Profile: ${profile} (${source})`);
-    if (resolved.length) notifyLines.push(`✓ ${resolved.join(", ")}`);
-    if (failed.length) notifyLines.push(`✗ MISSING: ${failed.join(", ")}`);
+    const { prompt: resolvedPrompt, failed } = expandSystemPrompt(prepared.prompt);
+    const hasWarnings =
+      failed.length > 0 || Boolean(selection.warning) || Boolean(prepared.warning);
     ctx.ui.notify(
-      notifyLines.join(" | "),
-      failed.length > 0 || Boolean(selection.warning) || Boolean(prepared.warning) ? "warning" : "info",
+      `Loaded profile: ${profile}`,
+      hasWarnings ? "warning" : "info",
     );
     return {
       systemPrompt: resolvedPrompt,
