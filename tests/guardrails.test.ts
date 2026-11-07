@@ -5,7 +5,14 @@ import * as path from "node:path";
 import * as os from "node:os";
 import { execSync } from "node:child_process";
 
-import { isProtectedPath, isValidReviewMarker, getChangedPaths, sanitizeForGitDetection } from "../extensions/guardrails.ts";
+import {
+  isProtectedPath,
+  isValidReviewMarker,
+  getChangedPaths,
+  sanitizeForGitDetection,
+  isAllowedInfisicalMetadataQuery,
+  isBlockedInfisicalCommand,
+} from "../extensions/guardrails.ts";
 import guardrailsExtension from "../extensions/guardrails.ts";
 
 // Captures the bash-command tool_call handler (the second pi.on("tool_call", ...)
@@ -164,6 +171,63 @@ test("sanitizeForGitDetection - false positive: apostrophe in earlier double-quo
   const cmd = `echo "here's the fix" && python3 -c 'write_report("discussion: git commit boundary handling")'`;
   const sanitized = sanitizeForGitDetection(cmd);
   assert.strictEqual(/git\s+commit/.test(sanitized), false);
+});
+
+test("Infisical guard allows only the literal standalone folders metadata query", () => {
+  const realQuery =
+    "infisical secrets folders get --projectId=1e941e98-b845-4048-b528-572e1f1bfa79 " +
+    "--domain http://localhost:8080 --env=dev --path=/ --output=json --silent";
+  assert.strictEqual(isAllowedInfisicalMetadataQuery(realQuery), true);
+  assert.strictEqual(isAllowedInfisicalMetadataQuery(
+    "infisical secrets folders get --silent --output json --path / --env dev " +
+    "--domain=http://localhost:8080 --projectId 1e941e98-b845-4048-b528-572e1f1bfa79",
+  ), true);
+  assert.strictEqual(isAllowedInfisicalMetadataQuery("infisical secrets folders get"), false);
+
+  for (const command of [
+    "infisical export",
+    "infisical secrets",
+    "infisical secrets get",
+    "infisical secrets set",
+    "infisical secrets delete",
+    realQuery + " --help",
+    realQuery + " --projectId=another",
+    realQuery.replace("--env=dev", "--env"),
+    realQuery.replace("--output=json", "--output=yaml"),
+    realQuery.replace("--domain http://localhost:8080", "--domain https://example.com"),
+    realQuery.replace("--path=/", "--path=../secrets"),
+    realQuery.replace("--silent", "--silent=true"),
+    realQuery + " --silent",
+    realQuery + "; infisical secrets get",
+    realQuery + " | cat",
+    realQuery + " > metadata.txt",
+    realQuery + " &",
+    realQuery + " || true",
+    "echo $(" + realQuery + ")",
+    "`" + realQuery + "`",
+    realQuery + "\ninfisical secrets get",
+    "infisical secrets folders get --projectId=$PROJECT --domain http://localhost:8080 --env=dev --path=/ --output=json --silent",
+  ]) {
+    assert.strictEqual(isAllowedInfisicalMetadataQuery(command), false, command);
+    assert.strictEqual(isBlockedInfisicalCommand(command), true, command);
+  }
+
+  assert.strictEqual(isBlockedInfisicalCommand("printf 'infisical'"), true);
+  assert.strictEqual(isBlockedInfisicalCommand("echo unrelated"), false);
+});
+
+test("Infisical guard applies the real query equally to bash and safe_bash", async () => {
+  const hook = getBashHook();
+  const realQuery =
+    "infisical secrets folders get --projectId=1e941e98-b845-4048-b528-572e1f1bfa79 " +
+    "--domain http://localhost:8080 --env=dev --path=/ --output=json --silent";
+  for (const toolName of ["bash", "safe_bash"]) {
+    const allowed = await hook({ toolName, input: { command: realQuery } }, {});
+    assert.strictEqual(allowed?.block, undefined, toolName);
+
+    const blocked = await hook({ toolName, input: { command: realQuery + " && infisical export" } }, {});
+    assert.strictEqual(blocked?.block, true, toolName);
+  }
 });
 
 test("sanitizeForGitDetection - true positive: real git commit/push invocation still detected", () => {

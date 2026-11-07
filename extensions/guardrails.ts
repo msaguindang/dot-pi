@@ -111,6 +111,60 @@ export function sanitizeForGitDetection(input: string): string {
   return stripQuotedStrings(stripHeredocBodies(input));
 }
 
+// The one Infisical command permitted by the shell guard is a standalone
+// metadata lookup. Parse only unquoted, whitespace-delimited literal tokens:
+// this intentionally rejects every shell construct (including quoting,
+// expansion, and command chaining) rather than trying to implement a shell.
+export function isAllowedInfisicalMetadataQuery(command: string): boolean {
+  if (/[\r\n]/.test(command)) return false;
+  const tokens = command.trim().split(/[ \t]+/);
+  if (tokens.length < 4 || tokens[0] !== "infisical" || tokens[1] !== "secrets" ||
+      tokens[2] !== "folders" || tokens[3] !== "get") return false;
+
+  const values: Record<string, string> = {};
+  const booleanFlags = new Set(["silent"]);
+  const valueFlags = new Set(["projectId", "domain", "env", "path", "output"]);
+  for (let i = 4; i < tokens.length; i++) {
+    const token = tokens[i];
+    if (!token.startsWith("--")) return false;
+    const flagText = token.slice(2);
+    const equals = flagText.indexOf("=");
+    const name = equals < 0 ? flagText : flagText.slice(0, equals);
+    if (booleanFlags.has(name)) {
+      if (equals >= 0 || values[name] !== undefined) return false;
+      values[name] = "";
+      continue;
+    }
+    if (!valueFlags.has(name) || values[name] !== undefined) return false;
+
+    let value: string;
+    if (equals >= 0) {
+      value = flagText.slice(equals + 1);
+      if (!value) return false;
+    } else {
+      if (++i >= tokens.length) return false;
+      value = tokens[i];
+      if (!value || value.startsWith("--")) return false;
+    }
+    values[name] = value;
+  }
+
+  // Keep identifiers literal and shell-safe; project IDs are commonly UUIDs,
+  // but the conservative identifier form also supports other Infisical IDs.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(values.projectId ?? "")) return false;
+  if (values.domain !== "http://localhost:8080") return false;
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(values.env ?? "")) return false;
+  const folderPath = values.path ?? "";
+  if (!/^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]*$/.test(folderPath)) return false;
+  if (folderPath.split("/").some(segment => segment === "." || segment === "..")) return false;
+  if (values.output !== "json" || values.silent !== "") return false;
+  return true;
+}
+
+export function isBlockedInfisicalCommand(command: string): boolean {
+  return /\binfisical\b/.test(command) && !isAllowedInfisicalMetadataQuery(command);
+}
+
 export function getChangedPaths(cmdType: "commit" | "push", cwd: string): string[] | null {
   try {
     if (cmdType === "commit") {
@@ -255,7 +309,7 @@ export default function (pi: ExtensionAPI) {
     if (/>\s*(\.env|auth\.json|\.runner\/\.env|ec2_key\.pem)/.test(cmd)) {
       return { block: true, reason: "Blocked" };
     }
-    if (/infisical\s+(secrets|export)/.test(cmd)) {
+    if (isBlockedInfisicalCommand(cmd)) {
       return { block: true, reason: "Blocked" };
     }
     // ── Post-Mutation Review Gate (hook-layer enforcement) ────────────────
