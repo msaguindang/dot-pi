@@ -11,7 +11,7 @@ authorization, evidence, diagnostic, and escalation invariants are in
 | Before acting | Load first |
 |---|---|
 | R2/R3 design → implementation → review | `delegate` |
-| Any `subagent()` CHAIN | `pi-subagents` |
+| Any scripted multi-step `subagent()` workflow | `pi-subagents` |
 | Complex subagent prompt | `delegation-validator` |
 | NTV, harness, Hyprland, or WezTerm domain work | `pi-knowledge-search` |
 | NTV ticket/feature/bug | `ntv-worktree-manager` (REV is exempt) |

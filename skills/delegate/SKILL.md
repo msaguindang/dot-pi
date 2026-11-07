@@ -31,7 +31,8 @@ subagent({ agent: "reviewer", task: "...", context: "fresh" })
 subagent({ agent: "oracle", task: "..." })
 ```
 
-For multi-step handoffs, load `pi-subagents` first and use its `subagent({ chain: [...] })`
-form. If a genuinely blocking decision appears, return options plus a recommendation; do
-not wait for supervisor feedback. Verify claimed artifacts independently before reporting
-success.
+For multi-step handoffs, follow the scripted-workflow call shape in `~/.agents/adapters/pi.md` and the
+installed `pi-subagents` skill. Use legacy `chain`/`tasks` inputs only when workflow scripts are
+explicitly disabled. If a genuinely blocking decision appears, return options plus a
+recommendation; do not wait for supervisor feedback. Verify claimed artifacts independently
+before reporting success.
