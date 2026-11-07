@@ -31,7 +31,6 @@
     "+extensions/guardrails.ts",
     "+extensions/bash-truncator.ts",
     "+extensions/tool-cache.ts",
-    "+extensions/gmail.ts",
     "+extensions/adjutant-greeting.ts",
     "+extensions/first-run.ts",
     "+extensions/session-name-status.ts",
